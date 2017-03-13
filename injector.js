@@ -71,8 +71,6 @@ function read_names() {
 	for (key2 in queries) {
 		total2++;
 		// console.debug(queries[key2].from + ' to ' + queries[key2].to);
-		//jump_count(source_system, queries[key2].to);
-
 		src = name_clean(source_system);
 		dest = name_clean(queries[key2].to);
 		full_url = route_url(src, dest);
@@ -88,12 +86,10 @@ function read_names() {
 			});
 		}
 		
-		//if(route_key in cache){
 		if (!cache.getItem(route_key)) {
 			$.get(full_url, function (data) {
 				// console.log("Load was performed.");
 				set_item(data);
-				// console.debug(data);
 				gets++;
 			});
 		} else {
@@ -104,11 +100,4 @@ function read_names() {
 
 	}
 	console.debug(total2 + ' keys, ' + gets + ' gets, ' + cached + ' cached loads')
-	/*
-	jump_count(source_system, dest).then(function (data) {
-		$('.custom_range_view#' + key1).each(function (count) {
-			$(this).text('(' + data.length + ' jumps from ' + source_system + ')')
-		});
-	});
-	*/
 };
