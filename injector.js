@@ -2,7 +2,14 @@
 cache = localStorage;
 
 function name_clean(name) {
-	return encodeURIComponent(name.split(' ')[0]);
+	return encodeURIComponent(name.split(/ [VIX]+/)[0]);
+	sp1 = name.split(' ');
+	if(sp1.length > 1){
+		name = sp1.slice(0, -1).join(' ');
+	}else{
+		name = sp1[0];
+	}
+	return encodeURIComponent(name);
 };
 
 //source = 'Frarn VI';
@@ -45,16 +52,23 @@ function get_routeX(src, dest /*, callback */){
 	}
 }
 
+var fetch = 0;
+var failed = 0;
+var pending = 0;
+var cached = 0;
+var total2 = 0;
+var last_pending = 0;
+var total = 0;
+
 
 function read_names() {
 	var dest = '';
 	var queries = {};
-	var total = 0;
 	$('span.sec_status').each(function (count) {
 		total++;
 		//if(count <=10){
 			var parent = $(this).parent();
-			dest = parent.text().split(/\r?\n/)[2].split(/-/)[0].split(/-?[01]\.[0-9] /)[1].trim();
+			dest = parent.text().split(/\r?\n/)[2].split(/ - /)[0].split(/-?[01]\.[0-9] /)[1].trim();
 			// dest = name_clean(dest);
 			key1 = name_clean(source_system) + '2' + name_clean(dest);
 			if(!parent.has('.custom_range_view').length){
@@ -63,11 +77,8 @@ function read_names() {
 			queries[key1] = {from: source_system, to: dest, key: key1};
 		//}
 	});
-	console.debug(total + ' records');
-	//console.debug(queries);
-	var total2 = 0;
-	var gets = 0;
-	var cached = 0;
+	//console.debug(total + ' records');
+	
 	for (key2 in queries) {
 		total2++;
 		// console.debug(queries[key2].from + ' to ' + queries[key2].to);
@@ -77,7 +88,13 @@ function read_names() {
 		route_key = src + '2' + dest;
 		
 		function set_item(data) {
-			key4 = data[0].from.name + '2' + data[data.length-1].to.name;
+			if(data[0] === undefined){
+				key4 = source_system + '2' + source_system;
+				data = [];
+			}else{
+				key4 = data[0].from.name + '2' + data[data.length - 1].to.name;
+			}
+			
 			cache.setItem(key4, JSON.stringify(data));
 			$('#' + key4).each(function (count) {
 				str = ' (' + data.length + ' jumps from ' + source_system + ')'
@@ -87,17 +104,45 @@ function read_names() {
 		}
 		
 		if (!cache.getItem(route_key)) {
-			$.get(full_url, function (data) {
+			pending++;
+			$.get(full_url, function (data, status) {
+				if (status !== 'success') {
+					console.log(status);
+				}
 				// console.log("Load was performed.");
 				set_item(data);
-				gets++;
+				fetch++;
+				pending--;
+			}).fail(function () {
+				console.log('failed');
+				failed++;
+				pending--;
 			});
 		} else {
 			// console.log("Load from cache");
 			cached++;
 			set_item(JSON.parse(cache.getItem(route_key)));
 		}
-
 	}
-	console.debug(total2 + ' keys, ' + gets + ' gets, ' + cached + ' cached loads')
+	last_pending = pending;
+	console.debug(pending + ' pending queries')
+	show_stats();
+	
 };
+
+function show_stats(){
+	if(pending > 0){
+		if (last_pending !== pending){
+			console.debug(pending + ' pending queries');
+			last_pending = pending;
+		}
+		setTimeout(show_stats, 100);
+	}else{
+		console.debug(total2 + ' lookups, ' + fetch + ' queries (' + failed + ' failed), ' + cached + ' cached loads' +
+		  ' (out of ' + total + ' items)')
+	}
+}
+
+function wait() {
+	show_stats();
+}
