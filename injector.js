@@ -1,50 +1,6 @@
 cache = localStorage;
 
-function name_clean(name) {
-	return encodeURIComponent(name.split(/ [VIX]+/)[0]);
-	sp1 = name.split(' ');
-	if(sp1.length > 1){
-		name = sp1.slice(0, -1).join(' ');
-	}else{
-		name = sp1[0];
-	}
-	return encodeURIComponent(name);
-};
-
-source_system = 'Frarn';
-route_url_base = '//api.eve-central.com/api/route/from/';
-
-function route_url(src, dest){
-	return route_url_base + src + '/to/' + dest;
-}
-
-function get_routeX(src, dest /*, callback */){
-	var res;
-	src = name_clean(src);
-	dest = name_clean(dest);
-	full_url = route_url(src, dest);
-	route_key = src + '2' + dest
-	
-	console.debug(cache)
-	
-	function set_item(data, key4) {
-		cache.setItem(key4, data);
-		$('#' + key4).each(function (count) {
-			str = ' (' + data.length + ' jumps from ' + source_system + ')'
-			$(this).text(str)
-		});
-	}
-	
-	if(!cache.getItem(route_key)){
-		a_key = route_key;
-		$.get(full_url, function (data) {
-			set_item(data, a_key);
-			console.debug(data);
-		});
-	}else{
-		set_item(cache.getItem(route_key), route_key)
-	}
-}
+matcher = /.+(?= [VIX]+)|[^\r\n ]+(?= .*)|^[^ ]+$/;
 
 var fetch = 0;
 var failed = 0;
@@ -54,50 +10,96 @@ var total2 = 0;
 var last_pending = 0;
 var total = 0;
 
+var limited = true;
+var limit = 50;
+
+source_system = 'Frarn';
+route_url_base = '//api.eve-central.com/api/route/from/';
+
+function name_clean_url_sub(name, strip) {
+	// return encodeURIComponent(name.split(/( [VIX]?)+/)[0]);
+	//try{
+		if(strip){
+			name = name.match(/.+(?= [VIX]+)|[^\r\n ]+(?= .*)|^[^ ]+$/)[0]
+		}
+	//} catch (e) {
+	//	console.log(e.toString() + ' for ' + name);
+	//}
+	return encodeURIComponent(name);
+};
+
+function name_clean_url(name){
+	return name_clean_url_sub(name, false);
+}
+
+function name_clean_id_sub(name, strip) {
+	return name_clean_url_sub(name, strip).replace(/%20/g, '_');
+}
+
+function name_clean_id(name) {
+	// return encodeURIComponent(name.match(/.+(?= [VIX]+)|[^\r\n ]+(?= .*)/)[0].replace(/%20/g, '_');
+	return name_clean_id_sub(name, false);
+};
+
+function route_url(src, dest){
+	return route_url_base + src + '/to/' + dest;
+}
+
+function set_item(data, store) {
+	if (data[0] === undefined) {
+		key4 = source_system + '2' + source_system;
+		data = [];
+	} else {
+		key4 = name_clean_id(data[0].from.name) + '2' + name_clean_id(data[data.length - 1].to.name);
+	}
+	if (store) {
+		console.log('caching ' + key4);
+		cache.setItem(key4, JSON.stringify(data));
+	}
+	$('#' + key4).each(function (count) {
+		str = ' (' + data.length + ' jumps from ' + source_system + ')'
+		$(this).text(str)
+	});
+}
 
 function read_names() {
 	var dest = '';
 	var queries = {};
 	$('span.sec_status').each(function (count) {
 		total++;
-		var parent = $(this).parent();
-		dest = parent.text().split(/\r?\n/)[2].split(/ - /)[0].split(/-?[01]\.[0-9] /)[1].trim();
-		key1 = name_clean(source_system) + '2' + name_clean(dest);
-		if(!parent.has('.custom_range_view').length){
-			obj = parent.append('  <span class="range_view custom_range_view" id="' + key1 + '"></span>');
+		if(!limited || total <= limit){
+			var parent = $(this).parent();
+			dest = parent.text().split(/\r?\n/)[2].split(/ - /)[0].split(/-?[01]\.[0-9] /)[1].trim();
+			dest_code = parent.has('a.sslimit').href();
+			console.log(dest_code);
+			key1 = name_clean_id(source_system) + '2' + name_clean_id_sub(dest, true);
+			if (!parent.has('.custom_range_view').length) {
+				obj = parent.append('  <span class="range_view custom_range_view" id="' + key1 + '"></span>');
+			}
+			queries[key1] = {from: source_system, to: dest, key: key1};
 		}
-		queries[key1] = {from: source_system, to: dest, key: key1};
 	});
 	
 	for (key2 in queries) {
 		total2++;
-		src = name_clean(source_system);
-		dest = name_clean(queries[key2].to);
+		src = name_clean_url(source_system);
+		dest = name_clean_url_sub(queries[key2].to, true);
 		full_url = route_url(src, dest);
-		route_key = src + '2' + dest;
 		
-		function set_item(data) {
-			if(data[0] === undefined){
-				key4 = source_system + '2' + source_system;
-				data = [];
-			}else{
-				key4 = data[0].from.name + '2' + data[data.length - 1].to.name;
-			}
-			
-			cache.setItem(key4, JSON.stringify(data));
-			$('#' + key4).each(function (count) {
-				str = ' (' + data.length + ' jumps from ' + source_system + ')'
-				$(this).text(str)
-			});
-		}
+		src = name_clean_id(source_system);
+		dest = name_clean_id_sub(queries[key2].to, true);
+		route_key = src + '2' + dest;
 		
 		if (!cache.getItem(route_key)) {
 			pending++;
+			console.log('cache miss on ' + route_key);
+			console.log('getting "' + full_url + '"');
+			console.log(queries[key2].to + ' => ' + name_clean_url_sub(queries[key2].to, true));
 			$.get(full_url, function (data, status) {
 				if (status !== 'success') {
 					console.log(status);
 				}
-				set_item(data);
+				set_item(data, true);
 				fetch++;
 				pending--;
 			}).fail(function () {
@@ -107,7 +109,7 @@ function read_names() {
 			});
 		} else {
 			cached++;
-			set_item(JSON.parse(cache.getItem(route_key)));
+			set_item(JSON.parse(cache.getItem(route_key)), false);
 		}
 	}
 	last_pending = pending;
@@ -124,7 +126,12 @@ function show_stats(){
 		}
 		setTimeout(show_stats, 100);
 	}else{
-		console.debug(total2 + ' lookups, ' + fetch + ' queries (' + failed + ' failed), ' + cached + ' cached loads' +
-		  ' (out of ' + total + ' items)')
+		var has_failed = ''
+		if(failed > 0){
+			has_failed = ' (' + failed + ' failed)'
+		}
+		cache_score = Number(( (cached / total2) * 100.).toFixed(2));
+		console.debug(total2 + ' lookups, ' + fetch + ' queries' + has_failed + ', ' + cached + ' cached loads' +
+		  ' (out of ' + total + ' items), ' + cache_score + '% cache hit')
 	}
 }
