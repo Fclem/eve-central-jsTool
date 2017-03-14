@@ -2,29 +2,83 @@ cache = localStorage;
 
 matcher = /.+(?= [VIX]+)|[^\r\n ]+(?= .*)|^[^ ]+$/;
 
-var fetch = 0;
-var failed = 0;
-var pending = 0;
-var cached = 0;
-var total2 = 0;
-var last_pending = 0;
-var total = 0;
+id_separator = '-';
+route_prefix = 'R' + id_separator;
+system_id_prefix = 'Sid' + id_separator;
+system_name_prefix = 'Sna' + id_separator;
+fetch = 0;
+failed = 0;
+pending = 0;
+cached = 0;
+total2 = 0;
+last_pending = 0;
+total = 0;
 
-var limited = true;
-var limit = 50;
+limited = true;
+limit = 50;
+refresh_int = 100;
 
-source_system = 'Frarn';
+source_system = 30002526;
+base_system = 30000001;
+
 route_url_base = '//api.eve-central.com/api/route/from/';
 
+pend_res = {};
+
+function sleep(time) {
+	return new Promise((resolve) => setTimeout(resolve, time));
+}
+
+function system_info(system_id){
+	var dest = base_system;
+	if (system_id === undefined) {
+		console.log('system_id is undefined');
+		return [];
+	}
+	
+	if(system_id === dest){
+		dest++;
+	}
+	system_key = system_id_prefix + system_id;
+	
+	if(pend_res[system_key]){ // if resolution is pending
+		while (!pend_res[system_key]) {
+			sleep(500).then(() => {
+					
+				}
+			)
+		}
+		return system_info(system_id);
+	}else{
+		if (!cache.getItem(system_key)) {
+			pend_res[system_key] = true;
+			
+			full_url = route_url(system_id, dest);
+			$.get(full_url, function (data, status) {
+				if (status !== 'success') {
+					console.log(status);
+				}
+				console.log('Q: system ' + system_id + ' is ' + name);
+				cache.setItem(system_key, JSON.stringify(data[0].from));
+				pend_res[system_key] = false
+			}).fail(function () {
+				console.log('res failed');
+				pend_res[system_key] = false
+			});
+			return system_info(system_id);
+		} else {
+			pend_res[system_key] = false
+			data = JSON.parse(cache.getItem(system_key));
+			//console.log('system ' + system_id + ' is ' + data.name);
+			return data;
+		}
+	}
+}
+
 function name_clean_url_sub(name, strip) {
-	// return encodeURIComponent(name.split(/( [VIX]?)+/)[0]);
-	//try{
 		if(strip){
 			name = name.match(/.+(?= [VIX]+)|[^\r\n ]+(?= .*)|^[^ ]+$/)[0]
 		}
-	//} catch (e) {
-	//	console.log(e.toString() + ' for ' + name);
-	//}
 	return encodeURIComponent(name);
 };
 
@@ -37,7 +91,6 @@ function name_clean_id_sub(name, strip) {
 }
 
 function name_clean_id(name) {
-	// return encodeURIComponent(name.match(/.+(?= [VIX]+)|[^\r\n ]+(?= .*)/)[0].replace(/%20/g, '_');
 	return name_clean_id_sub(name, false);
 };
 
@@ -46,20 +99,52 @@ function route_url(src, dest){
 }
 
 function set_item(data, store) {
+	var key4 = '';
+	var src;
+	var dest;
 	if (data[0] === undefined) {
-		key4 = source_system + '2' + source_system;
+		key4 = route_prefix + source_system + id_separator + source_system;
 		data = [];
 	} else {
-		key4 = name_clean_id(data[0].from.name) + '2' + name_clean_id(data[data.length - 1].to.name);
+		src = data[0].from;
+		dest = data[data.length - 1].to;
+		key4 = route_prefix + src.systemid + id_separator + dest.systemid;
+		var src_sys_key = system_id_prefix + src.systemid;
+		var dest_sys_key = system_id_prefix + dest.systemid;
+		
+		if(src !== undefined && !cache.getItem(src_sys_key))
+			cache.setItem(src_sys_key, JSON.stringify(src));
+		
+		if(dest !== undefined && !cache.getItem(dest_sys_key))
+			cache.setItem(dest_sys_key, JSON.stringify(dest));
+		
+		var src_name = system_info(src.systemid).name;
+		var dest_name = system_info(dest.systemid).name;
+		
+		// console.log(src.systemid + ': ' + src_name + ' (' + src.name + '), ' + dest.systemid + ': ' + dest_name + ' (' + dest.name + ')');
+		console.log(src.systemid + ': ' + src_name + ', ' + dest.systemid + ': ' + dest_name);
 	}
 	if (store) {
 		console.log('caching ' + key4);
 		cache.setItem(key4, JSON.stringify(data));
 	}
 	$('#' + key4).each(function (count) {
-		str = ' (' + data.length + ' jumps from ' + source_system + ')'
-		$(this).text(str)
+		// sys_name = system_name(source_system);
+		str = ' (' + data.length + ' jumps from ' + src_name + ')';
+		$(this).text(str);
 	});
+}
+
+function getQueryVariable(variable, query) {
+	//var query = window.location.search.substring(1);
+	var vars = query.split('&');
+	for (var i = 0; i < vars.length; i++) {
+		var pair = vars[i].split('=');
+		if (decodeURIComponent(pair[0]) == variable) {
+			return decodeURIComponent(pair[1]);
+		}
+	}
+	console.log('Query variable %s not found', variable);
 }
 
 function read_names() {
@@ -69,10 +154,9 @@ function read_names() {
 		total++;
 		if(!limited || total <= limit){
 			var parent = $(this).parent();
-			dest = parent.text().split(/\r?\n/)[2].split(/ - /)[0].split(/-?[01]\.[0-9] /)[1].trim();
-			dest_code = parent.has('a.sslimit').href();
-			console.log(dest_code);
-			key1 = name_clean_id(source_system) + '2' + name_clean_id_sub(dest, true);
+			dest = getQueryVariable('usesystem', parent.find('a.sslimit')[0].getAttribute('href'));
+			// console.log(dest);
+			var key1 = route_prefix + source_system + id_separator + dest;
 			if (!parent.has('.custom_range_view').length) {
 				obj = parent.append('  <span class="range_view custom_range_view" id="' + key1 + '"></span>');
 			}
@@ -82,19 +166,15 @@ function read_names() {
 	
 	for (key2 in queries) {
 		total2++;
-		src = name_clean_url(source_system);
-		dest = name_clean_url_sub(queries[key2].to, true);
-		full_url = route_url(src, dest);
-		
-		src = name_clean_id(source_system);
-		dest = name_clean_id_sub(queries[key2].to, true);
-		route_key = src + '2' + dest;
+		var src = source_system;
+		dest = queries[key2].to;
+		var full_url = route_url(src, dest);
+		var route_key = route_prefix + src + id_separator + dest;
 		
 		if (!cache.getItem(route_key)) {
 			pending++;
 			console.log('cache miss on ' + route_key);
 			console.log('getting "' + full_url + '"');
-			console.log(queries[key2].to + ' => ' + name_clean_url_sub(queries[key2].to, true));
 			$.get(full_url, function (data, status) {
 				if (status !== 'success') {
 					console.log(status);
