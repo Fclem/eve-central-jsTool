@@ -29,7 +29,26 @@ function sleep(time) {
 	return new Promise((resolve) => setTimeout(resolve, time));
 }
 
-function system_info(system_id){
+function write_cache(key, data, force_overwrite){
+	if (!cache.getItem(key) || force_overwrite !== undefined){
+		cache.setItem(key, JSON.stringify(data));
+		return true;
+	}
+	return false;
+}
+
+function cache_get(key){
+	return JSON.parse(cache.getItem(key));
+}
+
+function cache_get_or_query(key, callable, url){ // TODO finish
+	if (!cache.getItem(key)){
+		write_cache(key, callable(url))
+	}
+	return cache_get(key);
+}
+
+function system_info(system_id, force_cache){
 	var dest = base_system;
 	if (system_id === undefined) {
 		console.log('system_id is undefined');
@@ -43,13 +62,16 @@ function system_info(system_id){
 	
 	if(pend_res[system_key]){ // if resolution is pending
 		while (!pend_res[system_key]) {
-			sleep(500).then(() => {
+			sleep(refresh_int).then(() => {
 					
 				}
 			)
 		}
 		return system_info(system_id);
 	}else{
+		if(force_cache !== undefined)
+			write_cache(system_key, force_cache);
+		
 		if (!cache.getItem(system_key)) {
 			pend_res[system_key] = true;
 			
@@ -59,17 +81,18 @@ function system_info(system_id){
 					console.log(status);
 				}
 				console.log('Q: system ' + system_id + ' is ' + name);
-				cache.setItem(system_key, JSON.stringify(data[0].from));
+				// cache.setItem(system_key, JSON.stringify(data[0].from));
+				write_cache(system_key, data[0].from);
 				pend_res[system_key] = false
 			}).fail(function () {
-				console.log('res failed');
+				console.log('failed' + full_url);
 				pend_res[system_key] = false
 			});
 			return system_info(system_id);
 		} else {
 			pend_res[system_key] = false
-			data = JSON.parse(cache.getItem(system_key));
-			//console.log('system ' + system_id + ' is ' + data.name);
+			// data = JSON.parse(cache.getItem(system_key));
+			data = cache_get(system_key);
 			return data;
 		}
 	}
@@ -109,30 +132,24 @@ function set_item(data, store) {
 		src = data[0].from;
 		dest = data[data.length - 1].to;
 		key4 = route_prefix + src.systemid + id_separator + dest.systemid;
-		var src_sys_key = system_id_prefix + src.systemid;
-		var dest_sys_key = system_id_prefix + dest.systemid;
+
+		var src_name = system_info(src.systemid, src).name;
+		var dest_name = system_info(dest.systemid, dest).name;
 		
-		if(src !== undefined && !cache.getItem(src_sys_key))
-			cache.setItem(src_sys_key, JSON.stringify(src));
-		
-		if(dest !== undefined && !cache.getItem(dest_sys_key))
-			cache.setItem(dest_sys_key, JSON.stringify(dest));
-		
-		var src_name = system_info(src.systemid).name;
-		var dest_name = system_info(dest.systemid).name;
-		
-		// console.log(src.systemid + ': ' + src_name + ' (' + src.name + '), ' + dest.systemid + ': ' + dest_name + ' (' + dest.name + ')');
-		console.log(src.systemid + ': ' + src_name + ', ' + dest.systemid + ': ' + dest_name);
+		// console.log(src.systemid + ': ' + src_name + ', ' + dest.systemid + ': ' + dest_name);
 	}
 	if (store) {
 		console.log('caching ' + key4);
-		cache.setItem(key4, JSON.stringify(data));
+		write_cache(key4, data);
 	}
-	$('#' + key4).each(function (count) {
-		// sys_name = system_name(source_system);
+	//console.log('setting ' + key4 + ', has ' + $('#' + key4).length + ' members');
+	//a_count = 0;
+	$('span[name=' + key4 + ']').each(function (count) {
+		//a_count++;
 		str = ' (' + data.length + ' jumps from ' + src_name + ')';
 		$(this).text(str);
 	});
+	//console.log(a_count  + ' items affected');
 }
 
 function getQueryVariable(variable, query) {
@@ -155,10 +172,9 @@ function read_names() {
 		if(!limited || total <= limit){
 			var parent = $(this).parent();
 			dest = getQueryVariable('usesystem', parent.find('a.sslimit')[0].getAttribute('href'));
-			// console.log(dest);
 			var key1 = route_prefix + source_system + id_separator + dest;
 			if (!parent.has('.custom_range_view').length) {
-				obj = parent.append('  <span class="range_view custom_range_view" id="' + key1 + '"></span>');
+				obj = parent.append('  <span class="range_view custom_range_view" name="' + key1 + '"></span>');
 			}
 			queries[key1] = {from: source_system, to: dest, key: key1};
 		}
@@ -183,19 +199,19 @@ function read_names() {
 				fetch++;
 				pending--;
 			}).fail(function () {
-				console.log('failed');
+				console.log('failed ' + full_url);
 				failed++;
 				pending--;
 			});
 		} else {
 			cached++;
-			set_item(JSON.parse(cache.getItem(route_key)), false);
+			// set_item(JSON.parse(cache.getItem(route_key)), false);
+			set_item(cache_get(route_key), false);
 		}
 	}
 	last_pending = pending;
 	console.debug(pending + ' pending queries')
 	show_stats();
-	
 };
 
 function show_stats(){
