@@ -22,11 +22,9 @@ function getQueryVariable(variable, query) {
 var cache = localStorage;
 var ownCache = {};
 
-//var matcher = /.+(?= [VIX]+)|[^\r\n ]+(?= .*)|^[^ ]+$/;
-
 var idSeparator = '-';
 var routePrefix = 'R' + idSeparator;
-var systemIdPrefix = 'Sid' + idSeparator;
+//var systemIdPrefix = 'Sid' + idSeparator;
 //var system_name_prefix = 'Sna' + idSeparator;
 var fetch = 0;
 var failed = 0;
@@ -39,7 +37,6 @@ var cacheLimitExcedeed = false;
 var debug = false;
 
 var initialized;
-// var all_rows_init ;
 
 var limited = false;
 var limit = 50;
@@ -62,11 +59,14 @@ var insertDefaultClass = 'range_view';
 var columnHeaderInsertSelector = 'th:first-child + th';
 var insertColumnHeaderHtml = '<th>Jumps</th>';
 
-function write_cache(key, data, force_overwrite){
+function write_cache(key, data, forceOverwrite){
+	/* saves data to the localStorage cache with key as a JSON dump
+	 * Only writes if key is not found in cache or if forceOverwrite evals to true
+	 * FIXME somewhat broken */
 	pData = JSON.stringify(data);
 	ownCache[key] = pData;
 	if (!cacheLimitExcedeed) {
-		if (!cache.getItem(key) || force_overwrite !== undefined){
+		if (!cache.getItem(key) || forceOverwrite !== undefined){
 			try {
 				cache.setItem(key, pData);
 				if (debug) console.info('cached ', key);
@@ -81,6 +81,9 @@ function write_cache(key, data, force_overwrite){
 }
 
 function cache_get(key){
+	/* return an object fetched from cache and converted back from JSON string
+	return an empty Array if key is not found in cache
+	 * FIXME somewhat broken */
 	var data = [];
 	data = ownCache[key];
 	if(!data){
@@ -93,34 +96,33 @@ function cache_get(key){
 	return JSON.parse(data);
 }
 
-
-
-function system_info(system_id, force_cache){
+function system_info(systemId, force_cache){
+	/* return a system object as found from the JSON data-source */
 	var dest = baseSystemId;
-	if (system_id === undefined) {
-		console.error('system_id is undefined');
+	if (systemId === undefined) {
+		console.error('systemId is undefined');
 		return [];
 	}
+	if(systemId === dest) dest++;
 	
-	if(system_id === dest){
-		dest++;
-	}
-	var system_key = systemIdPrefix + system_id;
-	
-	return resSystems[system_id];
+	return resSystems[systemId];
 }
 
 function route_url(src, dest){
+	// returns the full relative url to query for jump data from src to dest
 	return routeUrlBase + src + '/to/' + dest;
 }
 
 function writeToTag(tagSelector, data){
+	// writes `data` HTML to every `tagSelector` found in DOM
 	$(tagSelector).each(function (count) {
 		$(this).html(data);
 	});
 }
 
 function set_item(data, store) {
+	/* writes the number of jumps with a visual indication to every row that has the same destination system
+	 * if store evals to true, store the jump data into cache */
 	var src, dest, cache_key, tag_name_key, gen_text; // prevents eventual overwritting of external vars
 	if (data[0] === undefined) {
 		cache_key = routePrefix + sourceSystemId + idSeparator + sourceSystemId;
@@ -139,8 +141,6 @@ function set_item(data, store) {
 	if (store)
 		write_cache(cache_key, data);
 }
-
-
 
 function getSystemsIdList() {
 	/* get a dict of all listed systems from borh buy and sell orders tables', with no more than one entry per system
