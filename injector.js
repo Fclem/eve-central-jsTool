@@ -1,67 +1,83 @@
+/*
+	Author : clement@fiere.fr
+	date : 13/03/2017 - 15/03/2017
+ */
+
+// UTILS
+function getQueryVariable(variable, query) {
+	/* returns a dict of query string components
+	 originaly from https://stackoverflow.com/a/2091331/5094389
+	 */
+	var vars = query.split('&');
+	for (var i = 0; i < vars.length; i++) {
+		var pair = vars[i].split('=');
+		if (decodeURIComponent(pair[0]) == variable) {
+			return decodeURIComponent(pair[1]);
+		}
+	}
+	console.log('Query variable %s not found', variable);
+}
+
+// OWN SOURCES
 var cache = localStorage;
 var ownCache = {};
 
-var matcher = /.+(?= [VIX]+)|[^\r\n ]+(?= .*)|^[^ ]+$/;
+//var matcher = /.+(?= [VIX]+)|[^\r\n ]+(?= .*)|^[^ ]+$/;
 
-var id_separator = '-';
-var route_prefix = 'R' + id_separator;
-var system_id_prefix = 'Sid' + id_separator;
-var system_name_prefix = 'Sna' + id_separator;
+var idSeparator = '-';
+var routePrefix = 'R' + idSeparator;
+var systemIdPrefix = 'Sid' + idSeparator;
+//var system_name_prefix = 'Sna' + idSeparator;
 var fetch = 0;
 var failed = 0;
 var pending = 0;
 var cached = 0;
 var total2 = 0;
-var last_pending = 0;
+var lastPending = 0;
 var total = 0;
 var cacheLimitExcedeed = false;
+var debug = false;
 
-var initialized ;
-var all_rows_init ;
+var initialized;
+// var all_rows_init ;
 
 var limited = false;
 var limit = 50;
-var refresh_int = 100;
+var refreshIntervalMs = 100;
+var syncAjaxTimeOutMs = 10000;
 
-var source_system = 30002526;
-var base_system = 30000001;
+var sourceSystemId = 30002526;
+var baseSystemId = 30000001;
 
-var route_url_base = '//api.eve-central.com/api/route/from/';
-var res_systems_url = 'https://breeze-dev.cloudapp.net/pub/data/systems-by-id.json';
-var res_regions_url = 'https://breeze-dev.cloudapp.net/pub/data/regions-names-by-id.json';
-var res_jumps_url = 'https://breeze-dev.cloudapp.net/pub/data/jumps-by-from-id.json';
-var res_systems = {};
+var routeUrlBase = '//api.eve-central.com/api/route/from/';
+var resSystemsUrl = 'https://breeze-dev.cloudapp.net/pub/data/systems-by-id.json';
+var resRegionsUrl = 'https://breeze-dev.cloudapp.net/pub/data/regions-names-by-id.json';
+var resJumpsUrl = 'https://breeze-dev.cloudapp.net/pub/data/jumps-by-from-id.json';
+var resSystems = {};
 
-var insert_el_tag = 'td';
+var insertElTag = 'td';
 var insertCustomClass = 'custom_range_view';
 var insertDefaultClass = 'range_view';
 
-var xTest;
-
-var pend_res = {};
-
-function sleep(time) {
-	return new Promise((resolve) => setTimeout(resolve, time));
-}
+var columnHeaderInsertSelector = 'th:first-child + th';
+var insertColumnHeaderHtml = '<th>Jumps</th>';
 
 function write_cache(key, data, force_overwrite){
 	pData = JSON.stringify(data);
 	ownCache[key] = pData;
-	if (!cache.getItem(key) || force_overwrite !== undefined){
-		if(!cacheLimitExcedeed){
+	if (!cacheLimitExcedeed) {
+		if (!cache.getItem(key) || force_overwrite !== undefined){
 			try {
-				console.info('caching ', key);
 				cache.setItem(key, pData);
-				return true;
+				if (debug) console.info('cached ', key);
 			} catch (e) {
 				cacheLimitExcedeed = true;
 				console.error('Could not cache item ', key, ' because ', e);
 			}
-		}else{
-			console.warn('Not caching ', key , ', because cache is full');
 		}
+	}else{
+		if (debug) console.warn('Not caching ', key , ', because cache is full');
 	}
-	return false;
 }
 
 function cache_get(key){
@@ -77,15 +93,10 @@ function cache_get(key){
 	return JSON.parse(data);
 }
 
-function cache_get_or_query(key, callable, url){ // TODO finish
-	if (!cache.getItem(key)){
-		write_cache(key, callable(url))
-	}
-	return cache_get(key);
-}
+
 
 function system_info(system_id, force_cache){
-	var dest = base_system;
+	var dest = baseSystemId;
 	if (system_id === undefined) {
 		console.error('system_id is undefined');
 		return [];
@@ -94,59 +105,13 @@ function system_info(system_id, force_cache){
 	if(system_id === dest){
 		dest++;
 	}
-	var system_key = system_id_prefix + system_id;
+	var system_key = systemIdPrefix + system_id;
 	
-	return res_systems[system_id];
-	/*
-	if(force_cache !== undefined)
-		write_cache(system_key, force_cache);
-	
-	if (!cache.getItem(system_key)) {
-		//pend_res[system_key] = true;
-		
-		full_url = route_url(system_id, dest);
-		$.get(full_url, function (data, status) {
-			if (status !== 'success') {
-				console.warn(status);
-			}
-			console.log('Q: system ', system_id, ' is ', name);
-			//pend_res[system_key] = false
-			write_cache(system_key, data[0].from);
-		}).fail(function () {
-			//pend_res[system_key] = false
-			console.error('failed at ', full_url);
-		});
-		//return system_info(system_id);
-		return '?';
-	} else {
-		//pend_res[system_key] = false
-		data = cache_get(system_key);
-		return data;
-	}
-	*/
+	return resSystems[system_id];
 }
-
-function name_clean_url_sub(name, strip) {
-		if(strip){
-			name = name.match(/.+(?= [VIX]+)|[^\r\n ]+(?= .*)|^[^ ]+$/)[0]
-		}
-	return encodeURIComponent(name);
-};
-
-function name_clean_url(name){
-	return name_clean_url_sub(name, false);
-}
-
-function name_clean_id_sub(name, strip) {
-	return name_clean_url_sub(name, strip).replace(/%20/g, '_');
-}
-
-function name_clean_id(name) {
-	return name_clean_id_sub(name, false);
-};
 
 function route_url(src, dest){
-	return route_url_base + src + '/to/' + dest;
+	return routeUrlBase + src + '/to/' + dest;
 }
 
 function writeToTag(tagSelector, data){
@@ -156,44 +121,30 @@ function writeToTag(tagSelector, data){
 }
 
 function set_item(data, store) {
-	var key4 = '';
-	var src;
-	var dest;
-	var src_name;
-	var dest_name;
+	var src, dest, cache_key, tag_name_key, gen_text; // prevents eventual overwritting of external vars
 	if (data[0] === undefined) {
-		key4 = route_prefix + source_system + id_separator + source_system;
+		cache_key = routePrefix + sourceSystemId + idSeparator + sourceSystemId;
+		tag_name_key = routePrefix + sourceSystemId;
 		data = [];
 	} else {
 		src = data[0].from;
 		dest = data[data.length - 1].to;
-		key4 = route_prefix + src.systemid + id_separator + dest.systemid;
-
-		// src_name = system_info(src.systemid, src).name;
-		// dest_name = system_info(dest.systemid, dest).name;
-	}
-	if (store) {
-		write_cache(key4, data);
+		cache_key = routePrefix + src.systemid + idSeparator + dest.systemid;
+		tag_name_key = routePrefix + dest.systemid;
 	}
 	
-	gen_text = Array(data.length + 1).join('#')
-	str = gen_text + ' (<strong>' + data.length + '</strong> jp)';
-	writeToTag(insert_el_tag + '[name=' + key4 + ']', str);
+	gen_text = Array(data.length + 1).join('#') + ' (<strong>' + data.length + '</strong> jp)';
+	writeToTag(insertElTag + '[name=' + tag_name_key + ']', gen_text);
+	
+	if (store)
+		write_cache(cache_key, data);
 }
 
-function getQueryVariable(variable, query) {
-	//var query = window.location.search.substring(1);
-	var vars = query.split('&');
-	for (var i = 0; i < vars.length; i++) {
-		var pair = vars[i].split('=');
-		if (decodeURIComponent(pair[0]) == variable) {
-			return decodeURIComponent(pair[1]);
-		}
-	}
-	console.log('Query variable %s not found', variable);
-}
 
-function read_names() {
+
+function getSystemsIdList() {
+	/* get a dict of all listed systems from borh buy and sell orders tables', with no more than one entry per system
+	 * also add the column to each row, to be later filled by showJumpCount() */
 	var dest = '';
 	var queries = {};
 	var locatorSelector = 'span.sec_status';
@@ -202,35 +153,56 @@ function read_names() {
 	
 	$(locatorSelector).each(function (count) {
 		total++;
-		//if(!limited || total <= limit){
-			var parent = $(this).parent();
-			dest = getQueryVariable('usesystem', parent.find('a.sslimit')[0].getAttribute('href'));
-			var key1 = route_prefix + source_system + id_separator + dest;
-			if (!parent.parent().has('.' + insertCustomClass).length) {
-				parent.after('<' + insert_el_tag + ' class="' + insertDefaultClass + ' ' + insertCustomClass + '" name="' + key1 + '"></' + insert_el_tag + '>');
-			}
-			queries[key1] = {from: source_system, to: dest, key: key1};
-		//}
+		var parent = $(this).parent();
+		dest = getQueryVariable('usesystem', parent.find('a.sslimit')[0].getAttribute('href'));
+		var cache_key = routePrefix + sourceSystemId + idSeparator + dest;
+		var tag_name_key = routePrefix + dest;
+		if (!parent.parent().has('.' + insertCustomClass).length) {
+			parent.after('<' + insertElTag + ' class="' + insertDefaultClass + ' ' + insertCustomClass + '" name="' + tag_name_key + '"></' + insertElTag + '>');
+		}
+		queries[cache_key] = {from: sourceSystemId, to: dest, key: cache_key};
 	});
 	
-	if (total === $(locatorSelector).length){
-		all_rows_init = true;
+	return queries;
+}
+
+function showStats() {
+	/* displays remaining pending queries and wait for all of them to complete before displaying stats */
+	if (pending > 0) {
+		if (lastPending !== pending) {
+			if (debug) console.log('', pending, ' pending queries');
+			lastPending = pending;
+		}
+		setTimeout(showStats, refreshIntervalMs);
+	} else {
+		var has_failed = ''
+		if (failed > 0) {
+			has_failed = ' (' + failed + ' failed)'
+		}
+		cache_score = Number(( (cached / total2) * 100.).toFixed(2));
+		console.log('', total2, ' lookups, ', fetch, ' queries' + has_failed + ', ', cached, ' cached loads' +
+		  ' (out of ', total, ' items), ', cache_score, '% cache hit');
 	}
-	
-	for (key2 in queries) {
+}
+
+function showJumpCount(queries){
+	/* request (XHR or from cache) jump distance for each entry and display it in the new column */
+	for (item_key in queries) {
 		if (limited && total2 >= limit) {
 			break;
 		}
 		total2++;
-		var src = source_system;
-		dest = queries[key2].to;
+		var src = sourceSystemId;
+		dest = queries[item_key].to;
 		var full_url = route_url(src, dest);
-		var route_key = route_prefix + src + id_separator + dest;
+		var route_key = routePrefix + src + idSeparator + dest;
 		
 		if (!cache.getItem(route_key)) {
 			pending++;
-			console.warn('cache miss on ', route_key);
-			console.info('getting ', full_url);
+			if (debug){
+				console.warn('cache miss on ', route_key);
+				console.info('getting ', full_url);
+			}
 			$.get(full_url, function (data, status) {
 				fetch++;
 				pending--;
@@ -248,71 +220,53 @@ function read_names() {
 			set_item(cache_get(route_key), false);
 		}
 	}
-	last_pending = pending;
+	lastPending = pending;
 	console.log('', pending, ' pending queries')
-	show_stats();
+	showStats();
 };
 
 function applyStyle(){
+	/* Injects column style into document */
 	var sheet = window.document.styleSheets[0]
 	sheet.insertRule('.' + insertCustomClass + ' { text-align: right; }', sheet.cssRules.length);
 }
 
-function show_stats(){
-	if(pending > 0){
-		if (last_pending !== pending){
-			console.log('',  pending, ' pending queries');
-			last_pending = pending;
-		}
-		setTimeout(show_stats, 100);
-	}else{
-		var has_failed = ''
-		if(failed > 0){
-			has_failed = ' (' + failed + ' failed)'
-		}
-		cache_score = Number(( (cached / total2) * 100.).toFixed(2));
-		console.log('', total2, ' lookups, ', fetch, ' queries' + has_failed + ', ', cached, ' cached loads' +
-		  ' (out of ', total, ' items), ', cache_score, '% cache hit');
-	}
-}
-
-function sync_get(url){
+function syncGet(url){
+	/* Makes a synchronous "XHR" request, and return its resulting data */
 	var ret_data;
 	$.ajax({
 		url     : url,
 		type    : "GET",
 		dataType: "json",
-		timeout : 10000,
+		timeout : syncAjaxTimeOutMs,
 		async   : false,
 		success : function (data) { ret_data = data ; }
 	});
 	return ret_data;
 }
 
-function get_systems(){
-	res_systems = sync_get(res_systems_url);
+function getSystems(){
+	/* Loads systems dictionary indexed by system id from a remtote JSON data source */
+	resSystems = syncGet(resSystemsUrl);
 }
-
 
 function init(){
-	get_systems();
+	getSystems();
 	
-	console.info('Source system is ', system_info(source_system).name);
-	pend_res = {};
+	console.info('Source system is ', system_info(sourceSystemId).name);
+	pendRes = {};
 	
 	if(!initialized){
-		$('th:first-child + th').each(function () {
-			$(this).after('<th>Jumps</th>');
-			
+		$(columnHeaderInsertSelector).each(function () {
+			$(this).after(insertColumnHeaderHtml);
 		});
 		initialized = true;
-		all_rows_init = false;
 		applyStyle();
 	}
-	read_names();
+	showJumpCount(getSystemsIdList());
 }
 
-
+/*
 var elem = `<style>
 	.tota11y-toolbar {
 		background-color: #333 !important;
@@ -362,3 +316,66 @@ var elem = `<style>
 		</div>
 	</button>
 </div>`;
+*/
+
+/*
+# FIXME deprecated
+
+ function cache_get_or_query(key, callable, url){ // TODO finish
+ if (!cache.getItem(key)){
+ write_cache(key, callable(url))
+ }
+ return cache_get(key);
+ }
+ 
+ function sleep(time) {
+ return new Promise((resolve) => setTimeout(resolve, time));
+ }
+*/
+
+/*
+
+# FIXME old version
+
+function system_info(system_id, force_cache) {
+	var dest = baseSystemId;
+	if (system_id === undefined) {
+		console.error('system_id is undefined');
+		return [];
+	}
+	
+	if (system_id === dest) {
+		dest++;
+	}
+	var system_key = systemIdPrefix + system_id;
+	
+	return resSystems[system_id];
+	
+	 if(force_cache !== undefined)
+	 write_cache(system_key, force_cache);
+	 
+	 if (!cache.getItem(system_key)) {
+	 //pendRes[system_key] = true;
+	 
+	 full_url = route_url(system_id, dest);
+	 $.get(full_url, function (data, status) {
+	 if (status !== 'success') {
+	 console.warn(status);
+	 }
+	 console.log('Q: system ', system_id, ' is ', name);
+	 //pendRes[system_key] = false
+	 write_cache(system_key, data[0].from);
+	 }).fail(function () {
+	 //pendRes[system_key] = false
+	 console.error('failed at ', full_url);
+	 });
+	 //return system_info(system_id);
+	 return '?';
+	 } else {
+	 //pendRes[system_key] = false
+	 data = cache_get(system_key);
+	 return data;
+	 }
+	 
+}
+*/
