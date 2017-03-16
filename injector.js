@@ -1,6 +1,8 @@
 /*
-	Author : clement@fiere.fr
+	Author : Clément Fiere
+	mail : Fclem@users.noreply.github.com
 	date : 13/03/2017 - 16/03/2017
+	all right reserved
  */
 
 "use strict";
@@ -8,6 +10,7 @@
 // UTILS
 function getQueryVariable(variable, query) {
 	/* returns a dict of query string components
+	thanks to Tarik and katspaugh
 	 originaly from https://stackoverflow.com/a/2091331/5094389
 	 */
 	var vars = query.split('&');
@@ -22,6 +25,8 @@ function getQueryVariable(variable, query) {
 
 function loadScript(url, callback) {
 	// Adding the script tag to the head as suggested before
+	// thanks to e-satis and joshuamabina
+	// from http://stackoverflow.com/a/950146/5094389
 	var head = document.getElementsByTagName('head')[0];
 	var script = document.createElement('script');
 	script.type = 'text/javascript';
@@ -37,6 +42,8 @@ function loadScript(url, callback) {
 }
 
 function loadCSS(url, cssId, callback){
+	// thanks to user58777 and Martin Smith
+	// from http://stackoverflow.com/a/577002/5094389
 	if (!document.getElementById(cssId)) {
 		var head = document.getElementsByTagName('head')[0];
 		var link = document.createElement('link');
@@ -108,11 +115,24 @@ var running = false;
 var canceled = false;
 
 var routeUrlBase = '//api.eve-central.com/api/route/from/';
-var resSystemsIdUrl = 'https://breeze-dev.cloudapp.net/pub/data/systems-by-id.json';
-var resSystemsNameUrl = 'https://breeze-dev.cloudapp.net/pub/data/systems-by-name.json';
-var resRegionsUrl = 'https://breeze-dev.cloudapp.net/pub/data/regions-names-by-id.json';
-var resJumpsFromUrl = 'https://breeze-dev.cloudapp.net/pub/data/jumps-by-from-id.json';
-var resJumpsToUrl = 'https://breeze-dev.cloudapp.net/pub/data/jumps-by-to-id.json';
+var resHostedUrlBase = 'https://raw.githubusercontent.com/Fclem/eve-central-jsTool/master/';
+
+var resSystemsIdUrl = 'data/systems-by-id.json';
+var resSystemsNameUrl = 'data/systems-by-name.json';
+var resRegionsUrl = 'data/regions-names-by-id.json';
+var resJumpsFromUrl = 'data/jumps-by-from-id.json';
+var resJumpsToUrl = 'data/jumps-by-to-id.json';
+var selfUrl = 'injector.js';
+
+function dynSetup(){
+	resSystemsIdUrl = resHostedUrlBase + resSystemsIdUrl;
+	resSystemsNameUrl = resHostedUrlBase + resSystemsNameUrl;
+	resRegionsUrl = resHostedUrlBase + resRegionsUrl;
+	resJumpsFromUrl = resHostedUrlBase + resJumpsFromUrl;
+	resJumpsToUrl = resHostedUrlBase + resJumpsToUrl;
+	selfUrl = resHostedUrlBase + selfUrl;
+}
+
 var resSystemsId = {};
 var resSystemsNames = {};
 var systemRowList = {};
@@ -271,8 +291,6 @@ var scriptImport = [
 var cssImport = [
 	{url: 'https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css', callback: noop},
 ];
-
-var selfUrl = 'https://breeze-dev.cloudapp.net/pub/injector.js';
 
 function updateProgressBar() {
 	if(debug) console.log(progressWidth);
@@ -727,6 +745,8 @@ function reloadSelf(){
 }
 
 function init(){
+	dynSetup();
+	
 	getSystems();
 	attachCSS();
 	
