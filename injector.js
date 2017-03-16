@@ -3,6 +3,8 @@
 	date : 13/03/2017 - 15/03/2017
  */
 
+"use strict";
+
 // UTILS
 function getQueryVariable(variable, query) {
 	/* returns a dict of query string components
@@ -38,32 +40,168 @@ var debug = false;
 
 var initialized;
 
+var sourceSystemId;
 var limited = false;
 var limit = 50;
 var refreshIntervalMs = 100;
 var syncAjaxTimeOutMs = 10000;
-
-var sourceSystemId = 30002526;
-var baseSystemId = 30000001;
+var running = false;
+var canceled = false;
 
 var routeUrlBase = '//api.eve-central.com/api/route/from/';
-var resSystemsUrl = 'https://breeze-dev.cloudapp.net/pub/data/systems-by-id.json';
+var resSystemsIdUrl = 'https://breeze-dev.cloudapp.net/pub/data/systems-by-id.json';
+var resSystemsNameUrl = 'https://breeze-dev.cloudapp.net/pub/data/systems-by-name.json';
 var resRegionsUrl = 'https://breeze-dev.cloudapp.net/pub/data/regions-names-by-id.json';
 var resJumpsUrl = 'https://breeze-dev.cloudapp.net/pub/data/jumps-by-from-id.json';
-var resSystems = {};
+var resSystemsId = {};
+var resSystemsNames = {};
+var systemRowList = {};
+var resXHRlist = new Array();
 
 var insertElTag = 'td';
 var insertCustomClass = 'custom_range_view';
 var insertDefaultClass = 'range_view';
 
 var columnHeaderInsertSelector = 'th:first-child + th';
-var insertColumnHeaderHtml = '<th>Jumps</th>';
+var uiJumpThClass = 'injected-jump-th';
+var insertColumnHeaderHtml = '<th class="' + uiJumpThClass + '">Jumps</th>';
+
+var uiTextBoxId = "injector-system-text";
+var uiAutoBoxId = "injector-autocomplete";
+var uiTextBoxDefaultValue = "Frarn";
+var uiSubmitId = "injector-form";
+var uiBox = "injector-box";
+var uiBoxLink = "injector-box-opener";
+var uiBottomBox = "injector-bottom-box";
+var uiBoxCloseLink = 'injector-box-closer';
+var uiBoxCancelLinkId = 'injector-box-cancel';
+
+var uiBoxHTML = `
+<div id="` + uiBox + `" class="floating-box">
+	<div id="myBar"></div>
+	<form action="#" id="` + uiSubmitId + `">
+		<input type="text" id="` + uiTextBoxId + `" placeholder="Name of your current system" value="` + uiTextBoxDefaultValue + `" autocomplete="off">
+        <input type="text" id="` + uiAutoBoxId + `" disabled="disabled" />
+		<input type="submit" value="submit">
+		<a id="` + uiBoxCancelLinkId + `">cancel</a>   <a id="` + uiBoxCloseLink + `">close</a>
+	</form>
+</div>
+<div id="` + uiBottomBox + `" class="bottom-box">
+	<a id="` + uiBoxLink + `"> Open </a>
+</div>`
+
+var uiBoxStyle = [
+`.bottom-box{
+	background-color: dimgrey;
+    padding: 10px;
+    border: 1px solid;
+    border-bottom: 0px;
+    border-color: #888;
+    left: 10%;
+    bottom: 0px;
+    height: 20px;
+    position: fixed;
+    min-width: 20px;
+}`,
+`.floating-box{
+	background-color: lightyellow;
+    color: #eee;
+    padding: 10px;
+    border: 1px solid;
+    border-color: #888;
+    top: 50%;
+    margin-top: -15px;
+    left: 50%;
+    margin-left: -200px;
+    min-height: 30px;
+    position: fixed;
+    min-width: 200px;
+    visibility: hidden;
+}`,
+`.floating-box form{
+	background: transparent;
+}`,
+`#` + uiBox + ` input[type=text]{
+	position: absolute;
+    top: 0px;
+    left: 0px;
+	background: transparent;
+	border: 0px;
+	padding: 5px;
+}`,
+`#` + uiBoxCloseLink + `{
+	bottom: 0;
+	right: 5px;
+	position: absolute;
+	cursor: pointer;
+}`,
+`#` + uiBoxCancelLinkId + `{
+	bottom: 0;
+	position: absolute;
+	visibility: hidden;
+	right: 50px;
+    cursor: pointer;
+}`,
+`#` + uiBoxLink + ` {
+    color: white;
+    cursor: pointer;
+}
+`,
+`#` + uiAutoBoxId + `{
+	z-index: 10;
+}
+`,
+`#` + uiTextBoxId + `{
+	z-index: 11;
+}
+`,
+`#` + uiBox + ` input[type=submit]{
+	display: none;
+	visibility: hidden;
+	right: 3px;
+	top: 3px;
+}
+`,
+`#myBar {
+    width: 1%;
+    visibility: hidden;
+    position: absolute;
+    z-index: 9;
+    height: 100%;
+    top: 0px;
+    left: 0px;
+    background-color: wheat;
+}
+`]
+
+
+var previousInput = '';
+var progressWidth = 0;
+var progressDOM = '';
+
+function updateProgressBar() {
+	if(debug) console.log(progressWidth);
+	if (progressWidth >= 100) {
+		progressDOM.style.width = '0%';
+		progressDOM.style.visibility = 'hidden';
+	} else {
+		progressDOM.style.width = progressWidth + '%';
+		setTimeout(updateProgressBar, 10);
+	}
+}
+
+function progressInit() {
+	progressDOM = document.getElementById("myBar");
+	progressDOM.style.visibility = 'inherit';
+	progressWidth = 0;
+	setTimeout(updateProgressBar, 10);
+}
 
 function write_cache(key, data, forceOverwrite){
 	/* saves data to the localStorage cache with key as a JSON dump
 	 * Only writes if key is not found in cache or if forceOverwrite evals to true
 	 * FIXME somewhat broken */
-	pData = JSON.stringify(data);
+	var pData = JSON.stringify(data);
 	ownCache[key] = pData;
 	if (!cacheLimitExcedeed) {
 		if (!cache.getItem(key) || forceOverwrite !== undefined){
@@ -96,16 +234,41 @@ function cache_get(key){
 	return JSON.parse(data);
 }
 
-function system_info(systemId, force_cache){
+function systemInfo(system){
 	/* return a system object as found from the JSON data-source */
-	var dest = baseSystemId;
-	if (systemId === undefined) {
+	if (system === undefined) {
 		console.error('systemId is undefined');
 		return [];
 	}
-	if(systemId === dest) dest++;
-	
-	return resSystems[systemId];
+	if(debug) console.log(typeof system);
+	if(typeof system === "number"){
+		return resSystemsId[system];
+	}else{
+		//system = system.substr(0,1).toUpperCase() + system.substr(1);
+		return resSystemsNames[system];
+	}
+}
+
+function systemLookup(sysName){
+	if(sysName === '') return '';
+	var keys = Object.keys(resSystemsNames);
+	for(var each in keys){
+		if(keys[each].toLowerCase().startsWith(sysName.toLowerCase())){
+			return keys[each];
+		}
+	}
+	return '';
+}
+
+function systemLookupList(sysName) {
+	var keys = Object.keys(resSystemsNames);
+	var res = new Array();
+	for (var each in keys) {
+		if (keys[each].toLowerCase().startsWith(sysName.toLowerCase())) {
+			res.push(keys[each]);
+		}
+	}
+	return res;
 }
 
 function route_url(src, dest){
@@ -113,11 +276,11 @@ function route_url(src, dest){
 	return routeUrlBase + src + '/to/' + dest;
 }
 
-function writeToTag(tagSelector, data){
+function writeToTag(tagSelector, data) {
 	// writes `data` HTML to every `tagSelector` found in DOM
-	$(tagSelector).each(function (count) {
-		$(this).html(data);
-	});
+	 $(tagSelector).each(function () {
+		 $(this).html(data);
+	 });
 }
 
 function set_item(data, store) {
@@ -142,6 +305,17 @@ function set_item(data, store) {
 		write_cache(cache_key, data);
 }
 
+function clearUp(){
+	/*
+	var selection = $('.' + insertCustomClass);
+	//if(selection.length > 0){
+	for (var each = 0; each < selection.length; each++) {
+		$(selection[each]).html('&nbsp;');
+	}
+	*/
+	writeToTag('.' + insertCustomClass, '&nbsp;');
+}
+
 function getSystemsIdList() {
 	/* get a dict of all listed systems from borh buy and sell orders tables', with no more than one entry per system
 	 * also add the column to each row, to be later filled by showJumpCount() */
@@ -149,7 +323,7 @@ function getSystemsIdList() {
 	var queries = {};
 	var locatorSelector = 'span.sec_status';
 	
-	writeToTag('.' + insertCustomClass, '');
+	insertHeader();
 	
 	$(locatorSelector).each(function (count) {
 		total++;
@@ -163,7 +337,7 @@ function getSystemsIdList() {
 		queries[cache_key] = {from: sourceSystemId, to: dest, key: cache_key};
 	});
 	
-	return queries;
+	systemRowList = queries;
 }
 
 function showStats() {
@@ -179,21 +353,30 @@ function showStats() {
 		if (failed > 0) {
 			has_failed = ' (' + failed + ' failed)'
 		}
-		cache_score = Number(( (cached / total2) * 100.).toFixed(2));
+		var cache_score = Number(( (cached / total2) * 100.).toFixed(2));
 		console.log('', total2, ' lookups, ', fetch, ' queries' + has_failed + ', ', cached, ' cached loads' +
 		  ' (out of ', total, ' items), ', cache_score, '% cache hit');
+		after();
 	}
 }
 
-function showJumpCount(queries){
+function updateProgressVal(){
+	progressWidth = ((fetch + failed + cached) / total2) * 100;
+}
+
+function showJumpCount(src){
 	/* request (XHR or from cache) jump distance for each entry and display it in the new column */
-	for (item_key in queries) {
-		if (limited && total2 >= limit) {
-			break;
-		}
+	console.info('Source system is ', systemInfo(sourceSystemId).name);
+	
+	var queries = systemRowList;
+	var maxItems = Object.keys(queries).length;
+	
+	for (var itemKey in queries) {
+		if (limited && total2 >= limit) break;
+		if (canceled) break;
 		total2++;
-		var src = sourceSystemId;
-		dest = queries[item_key].to;
+		// var src = sourceSystemId;
+		var dest = queries[itemKey].to;
 		var full_url = route_url(src, dest);
 		var route_key = routePrefix + src + idSeparator + dest;
 		
@@ -203,25 +386,31 @@ function showJumpCount(queries){
 				console.warn('cache miss on ', route_key);
 				console.info('getting ', full_url);
 			}
-			$.get(full_url, function (data, status) {
+			resXHRlist.push($.get(full_url, function (data, status) {
 				fetch++;
 				pending--;
 				if (status !== 'success') {
 					console.error(status);
 				}
 				set_item(data, true);
+				updateProgressVal();
+				//progressWidth = ((fetch + failed + cached) / total2) * 100;
 			}).fail(function () {
 				failed++;
 				pending--;
 				console.error('failed ', full_url);
-			});
+				updateProgressVal();
+				//progressWidth = ((fetch + failed + cached) / total2) * 100;
+			}));
 		} else {
 			cached++;
 			set_item(cache_get(route_key), false);
+			updateProgressVal();
+			//progressWidth = ((fetch + failed + cached) / total2) * 100;
 		}
 	}
 	lastPending = pending;
-	console.log('', pending, ' pending queries')
+	console.log('', pending, ' pending queries');
 	showStats();
 };
 
@@ -229,6 +418,9 @@ function applyStyle(){
 	/* Injects column style into document */
 	var sheet = window.document.styleSheets[0]
 	sheet.insertRule('.' + insertCustomClass + ' { text-align: right; }', sheet.cssRules.length);
+	for(var each in uiBoxStyle){
+		sheet.insertRule(uiBoxStyle[each], sheet.cssRules.length);
+	}
 }
 
 function syncGet(url){
@@ -245,78 +437,179 @@ function syncGet(url){
 	return ret_data;
 }
 
+function asyncGetCallback(url, callback) {
+	/* Makes a proper "XHR" request, and call the callback on success */
+	$.ajax({
+		url     : url,
+		type    : "GET",
+		dataType: "json",
+		timeout : syncAjaxTimeOutMs,
+		success : callback
+	});
+}
+
+function asyncGetRetVal(url, retVal) {
+	/* Makes a proper "XHR" request, and store the result in retVal */
+	$.ajax({
+		url     : url,
+		type    : "GET",
+		dataType: "json",
+		timeout : syncAjaxTimeOutMs,
+		success : function (data) { retVal = data; }
+	});
+}
+
 function getSystems(){
 	/* Loads systems dictionary indexed by system id from a remtote JSON data source */
-	resSystems = syncGet(resSystemsUrl);
+	// if (!Object.keys(resSystemsId).length) resSystemsId = syncGet(resSystemsIdUrl);
+	if (!Object.keys(resSystemsId).length){
+		asyncGetCallback(resSystemsIdUrl, function (data){
+			resSystemsId = data;
+		});
+	}
+	// if (!Object.keys(resSystemsNames).length) resSystemsNames = syncGet(resSystemsNameUrl);
+	if (!Object.keys(resSystemsNames).length) {
+		asyncGetCallback(resSystemsNameUrl, function (data) {
+			resSystemsNames = data;
+		});
+	}
+}
+
+function setInputColor(color){
+	$('#' + uiTextBoxId)[0].style.color = color;
+}
+
+function wrongInput(){
+	setInputColor('red');
+}
+
+function before(){
+	total2 = 0;
+	pending = 0;
+	fetch = 0;
+	cached = 0;
+	failed = 0;
+	setInputColor('blue');
+	$('#' + uiTextBoxId)[0].disabled = 'disabled';
+	progressInit();
+	canceled = false;
+	$('#' + uiBoxCancelLinkId)[0].style.visibility = 'inherit';
+	clearUp();
+}
+
+function after(){
+	setInputColor('black');
+	$('#' + uiBoxCancelLinkId)[0].style.visibility = 'hidden';
+	$('#' + uiTextBoxId)[0].removeAttribute('disabled');
+	$('#' + uiTextBoxId)[0].focus();
+	running = false;
+	canceled = false;
+}
+
+function start(){
+	var systemName = $('#' + uiTextBoxId)[0].value.trim();
+	
+	if(systemName && !running){
+		running = true;
+		try{
+			var system = systemInfo(systemName);
+			if(debug) console.debug(system);
+			sourceSystemId = Number(0 + system.systemid);
+			if(sourceSystemId > 0){
+				if (debug) console.log('system resolve says', system.name, ' : ', sourceSystemId);
+				
+				before();
+				
+				if (!Object.keys(systemRowList).length) {
+					getSystemsIdList();
+				}
+				showJumpCount(sourceSystemId);
+			}else{
+				wrongInput();
+			}
+		}catch (e){
+			after();
+			wrongInput();
+			console.error(e)
+			console.warn('System', systemName, 'not found');
+		}
+	}
+}
+
+function mapEvents(){
+	$('#' + uiBoxLink).click(function (event) {
+		$('#' + uiBox)[0].style.visibility = 'visible';
+		$('#' + uiBottomBox)[0].style.visibility = 'hidden';
+		$('#' + uiTextBoxId)[0].focus();
+	})
+	$('#' + uiBoxCloseLink).click(function (event) {
+		if(true || !running){
+			$('#' + uiBox)[0].style.visibility = 'hidden';
+			$('#' + uiBottomBox)[0].style.visibility = 'visible';
+		}
+	})
+	$('#' + uiBoxCancelLinkId).click(function (event) {
+		$('#' + uiBoxCancelLinkId)[0].style.visibility = 'hidden';
+		canceled = true;
+		for(var each in resXHRlist){
+			resXHRlist[each].abort();
+		}
+		console.warn('OPERATION CANCELED');
+	})
+	$('#' + uiSubmitId).submit(function (event) {
+		event.preventDefault();
+		start();
+	});
+	$('#' + uiTextBoxId).on('change paste input keyup', function (event) { //keydown
+		if (debug) console.log(event);
+		var val = $(this).val().trim();
+		var lookup = systemLookup(val);
+		var lookupArray = systemLookupList(val);
+		if (event.keyCode === 9 || event.keyCode === 39 || event.keyCode === 13) {
+			$('#' + uiTextBoxId).val(lookup);
+		}
+		if(previousInput !== val){
+			previousInput = val;
+			if (lookup === val) {
+				setInputColor('black');
+			} else {
+				if(lookup.toLowerCase().startsWith(val.toLowerCase()) && lookup !== ''){
+					$('#' + uiTextBoxId).val(lookup.substr(0, val.length));
+				}
+				wrongInput();
+			}
+			if (!(event.keyCode === 9 || event.keyCode === 39 || event.keyCode === 13)) {
+				$('#' + uiAutoBoxId).val(lookup);
+			}
+		}
+	});
+}
+
+function insertBox(){
+	$('body').append(uiBoxHTML);
+	mapEvents();
+}
+
+function insertHeader(){
+	if($('.' + uiJumpThClass).length === 0){
+		$(columnHeaderInsertSelector).each(function () {
+			$(this).after(insertColumnHeaderHtml);
+		});
+	}
 }
 
 function init(){
 	getSystems();
 	
-	console.info('Source system is ', system_info(sourceSystemId).name);
-	pendRes = {};
-	
 	if(!initialized){
-		$(columnHeaderInsertSelector).each(function () {
-			$(this).after(insertColumnHeaderHtml);
-		});
-		initialized = true;
 		applyStyle();
+		insertBox();
+		initialized = true;
 	}
-	showJumpCount(getSystemsIdList());
+	
+	// start();
 }
 
-/*
-var elem = `<style>
-	.tota11y-toolbar {
-		background-color: #333 !important;
-		color: #f2f2f2 !important;
-		position: fixed !important;
-		top: auto !important;
-		right: auto !important;
-		bottom: 0 !important;
-		left: 10px !important;
-		border-top-left-radius: 5px !important;
-		border-top-right-radius: 5px !important;
-		overflow: hidden !important;
-		z-index: 9998 !important;
-	}
-	.tota11y, .tota11y * {
-		border: none!important;
-		background-color: inherit!important;
-		box-sizing: border-box!important;
-		color: #f2f2f2!important;
-		font-family: Arial!important;
-		font-size: 14px!important;
-		font-style: normal!important;
-		font-weight: 400!important;
-		line-height: 1.35!important;
-		margin: 0!important;
-		padding: 0!important;
-		text-align: left!important;
-		text-shadow: none!important;
-	}
-</style>
-
-<div id="tota11y-toolbar" class="tota11y tota11y-toolbar" role="region" aria-expanded="false">
-	<div class="tota11y-toolbar-body">
-
-	</div>
-	<button aria-controls="tota11y-toolbar" class="tota11y-toolbar-toggle" aria-label="[tota11y] Toggle menu">
-		<div aria-hidden="true" class="tota11y-toolbar-logo"><!--
-    "Glasses" icon by Kyle Scott
-    https://thenounproject.com/Kyle/
-
-    Licensed under Creative Commons by 3.0 US
-    http://creativecommons.org/licenses/by/3.0/us/legalcode
--->
-			<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" id="Layer_1" x="0px" y="0px" viewBox="0 0 100 100" enable-background="new 0 0 100 100" xml:space="preserve">
-    <path fill="#ffffff" d="M74.466,35.24c-1.069-0.19-2.208-0.267-3.228-0.562c-0.639-0.184-1.348-0.622-1.965-1.075  c-1.246-0.919-2.479-1.557-3.928-2.152c-0.671-0.276-1.617-0.698-2.432-0.608c-0.582,0.064-1.196,0.664-1.73,1.029  c-1.196,0.818-2.186,1.442-3.32,2.198c-0.524,0.35-1.308,0.798-1.543,1.263c-0.142,0.279-0.13,0.736-0.281,1.029  c-0.35,0.679-1.069,1.434-1.777,1.403c-0.835-0.038-1.773-1.518-1.449-2.619c0.177-0.602,1.126-0.902,1.776-1.262  c2.041-1.134,3.803-2.3,5.52-3.602c1.106-0.841,2.579-1.471,4.536-1.542c1.889-0.071,4.45-0.083,6.22,0  c1.465,0.066,2.698,0.164,3.976,0.42c7.308,1.469,14.698,2.788,21.607,4.77c0.739,0.213,2.896,0.613,3.086,1.311  c0.121,0.439-0.236,1.435-0.375,2.151c-0.165,0.865-0.292,1.626-0.42,2.246c-0.12,0.574-0.65,1.174-0.936,1.776  c-0.842,1.778-1.379,3.821-2.104,5.753c-0.954,2.545-2.02,4.859-3.554,6.968c-1.46,2.005-3.442,3.33-5.987,4.536  c-1.128,0.534-2.43,1.083-3.835,1.403c-1.355,0.311-3.263,0.63-4.817,0.28c-2.233-0.501-3.081-2.543-3.882-4.536  c-0.848-2.115-1.351-4.049-1.636-6.827c-2.692,0.176-3.259,2.014-4.163,3.928c-0.384,0.812-0.792,1.623-1.168,2.385  c-1.542,3.115-3.197,6.47-5.473,8.746c-1.215,1.213-2.581,2.03-4.35,2.758c-3.331,1.373-6.847,2.569-10.757,3.462  c-3.598,0.821-8.923,1.642-12.252-0.093c-2.136-1.113-3.105-3.939-4.023-6.268c-0.458-1.159-0.835-2.459-1.262-3.882  c-0.378-1.259-0.708-2.778-1.543-3.602c-1.053-1.037-2.78-1.414-3.227-2.993c-0.815-0.307-1.563-0.821-2.292-1.308  c-4.349-2.915-8.693-5.774-13.141-8.606c-0.727-0.462-1.667-0.958-2.151-1.497c-0.712-0.792-1.108-2.117-1.684-3.133  c-0.265-0.469-0.588-0.92-0.888-1.357c-0.275-0.4-0.536-0.997-1.076-1.076C2.223,36.823,2.365,37.469,2.349,38  c-0.017,0.549-0.077,1.172-0.047,1.823c0.028,0.606,0.297,1.049,0.28,1.544c-0.018,0.515-0.291,1.036-0.841,1.029  c-0.727-0.009-0.8-0.98-0.983-1.686c-0.209-0.807-0.483-1.551-0.421-2.245c0.049-0.531,0.341-1.223,0.468-2.057  c0.246-1.599,0.126-3.078,1.451-3.415C3.004,32.804,4,33.38,4.781,33.649c0.789,0.272,1.597,0.428,2.339,0.702  c0.854,0.316,1.706,0.875,2.524,1.355c2.526,1.484,4.626,3.112,7.062,4.63c3.273,2.041,6.545,3.955,9.307,6.267  c7.434-2.179,16.722-3.566,25.863-4.302c4.176-0.337,8.326-0.174,12.253,0.374c5.624,0.787,10.073-1.58,13.844-3.18  c2.035-0.864,4.078-1.653,6.173-2.573C80.804,36.331,77.705,35.814,74.466,35.24z M93.968,39.729  c-1.838-0.388-3.732-0.737-5.471-1.075c-0.059-0.012-0.127-0.067-0.188-0.046c-1.143,0.392-2.279,0.613-3.367,1.029  c-2.033,0.773-4.015,1.775-5.752,3.039C78.33,43.3,77.372,44,76.897,44.733c-1.609,2.489-1.206,7.214-0.467,10.149  c0.27,1.071,0.411,1.79,0.889,2.666c3.022,1.287,6.88-0.183,8.885-1.684c1.526-1.142,2.676-2.75,3.602-4.35  C91.815,48.042,93.102,43.946,93.968,39.729z M64.878,46.089c-6.121-1.937-14.865-0.822-21.232,0.467  c-4.477,0.907-9.474,1.92-10.944,5.753c-0.801,2.086-1.009,5.098-0.701,7.903c0.284,2.599,1.076,4.892,2.011,6.594  c2.943,2.698,10.038,1.581,14.124,0.375c2.523-0.745,4.112-1.389,5.845-2.197c1.973-0.921,4.636-1.939,5.285-4.116  c0.179-0.597,0.115-1.244,0.188-1.824c0.492-3.909,1.942-7.447,4.303-9.634c0.477-0.441,1.146-0.679,1.357-1.262  C65.37,47.428,65.13,46.709,64.878,46.089z"></path>
-</svg>
-		</div>
-	</button>
-</div>`;
-*/
 
 /*
 # FIXME deprecated
@@ -337,7 +630,7 @@ var elem = `<style>
 
 # FIXME old version
 
-function system_info(system_id, force_cache) {
+function systemInfo(system_id, force_cache) {
 	var dest = baseSystemId;
 	if (system_id === undefined) {
 		console.error('system_id is undefined');
@@ -349,7 +642,7 @@ function system_info(system_id, force_cache) {
 	}
 	var system_key = systemIdPrefix + system_id;
 	
-	return resSystems[system_id];
+	return resSystemsId[system_id];
 	
 	 if(force_cache !== undefined)
 	 write_cache(system_key, force_cache);
@@ -369,7 +662,7 @@ function system_info(system_id, force_cache) {
 	 //pendRes[system_key] = false
 	 console.error('failed at ', full_url);
 	 });
-	 //return system_info(system_id);
+	 //return systemInfo(system_id);
 	 return '?';
 	 } else {
 	 //pendRes[system_key] = false
