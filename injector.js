@@ -115,7 +115,7 @@ var running = false;
 var canceled = false;
 
 var routeUrlBase = '//api.eve-central.com/api/route/from/';
-var resHostedUrlBase = 'https://raw.githubusercontent.com/Fclem/eve-central-jsTool/master/';
+var resHostedUrlBase = 'https://rawgit.com/Fclem/eve-central-jsTool/master/';
 
 var resSystemsIdUrl = 'data/systems-by-id.json';
 var resSystemsNameUrl = 'data/systems-by-name.json';
