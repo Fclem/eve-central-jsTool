@@ -20,7 +20,75 @@ function getQueryVariable(variable, query) {
 	console.log('Query variable %s not found', variable);
 }
 
+function loadScript(url, callback) {
+	// Adding the script tag to the head as suggested before
+	var head = document.getElementsByTagName('head')[0];
+	var script = document.createElement('script');
+	script.type = 'text/javascript';
+	script.src = url;
+	
+	// Then bind the event to the callback function.
+	// There are several events for cross browser compatibility.
+	script.onreadystatechange = callback;
+	script.onload = callback;
+	
+	// Fire the loading
+	head.appendChild(script);
+}
+
+function loadCSS(url, cssId, callback){
+	if (!document.getElementById(cssId)) {
+		var head = document.getElementsByTagName('head')[0];
+		var link = document.createElement('link');
+		link.id = cssId;
+		link.rel = 'stylesheet';
+		link.type = 'text/css';
+		link.href = url;
+		link.media = 'all';
+		head.appendChild(link);
+		console.info('imported ' + url);
+		callback();
+	}
+}
+
+/*
+ ** Returns the caret (cursor) position of the specified text field.
+ ** Return value range is 0-oField.value.length.
+ * from http://stackoverflow.com/a/2897229
+ */
+function doGetCaretPosition(oField) {
+	// Initialize
+	var iCaretPos = 0;
+	// IE Support
+	if (document.selection) {
+		// Set focus on the element
+		oField.focus();
+		// To get cursor position, get empty selection range
+		var oSel = document.selection.createRange();
+		// Move selection start to 0 position
+		oSel.moveStart('character', -oField.value.length);
+		// The caret position is selection length
+		iCaretPos = oSel.text.length;
+	}
+	// Firefox support
+	else if (oField.selectionStart || oField.selectionStart == '0')
+		iCaretPos = oField.selectionStart;
+	// Return results
+	return iCaretPos;
+}
+
 // OWN SOURCES
+
+// SETTINGS //
+var debug = false;              // enables verbosity
+var limited = false;            // enables the limitation of XHR queries to be issued
+var limit = 50;                 // value of the limit
+var refreshIntervalMs = 100;    // time to wait in milisecond between stats refresh
+var progressBarRefreshMs = 25;  // update interval of the progress bar in miliseconds
+var syncAjaxTimeOutMs = 10000;  // timout in miliseconds for synchronous XHR queries FIXME deprecated
+var autocompleteSuggestNum = 5; // number of result to display in autocompletition suggestion (set to -1 to disable)
+// END SETTING //
+
 var cache = localStorage;
 var ownCache = {};
 
@@ -36,15 +104,8 @@ var total2 = 0;
 var lastPending = 0;
 var total = 0;
 var cacheLimitExcedeed = false;
-var debug = false;
-
-var initialized;
 
 var sourceSystemId;
-var limited = false;
-var limit = 50;
-var refreshIntervalMs = 100;
-var syncAjaxTimeOutMs = 10000;
 var running = false;
 var canceled = false;
 
@@ -68,7 +129,7 @@ var insertColumnHeaderHtml = '<th class="' + uiJumpThClass + '">Jumps</th>';
 
 var uiTextBoxId = "injector-system-text";
 var uiAutoBoxId = "injector-autocomplete";
-var uiTextBoxDefaultValue = "Frarn";
+var uiTextBoxDefaultValue = "";
 var uiSubmitId = "injector-form";
 var uiBox = "injector-box";
 var uiBoxLink = "injector-box-opener";
@@ -91,6 +152,7 @@ var uiBoxHTML = `
 </div>`
 
 var uiBoxStyle = [
+'.' + insertCustomClass + ' { text-align: right; }',
 `.bottom-box{
 	background-color: dimgrey;
     padding: 10px;
@@ -128,12 +190,15 @@ var uiBoxStyle = [
 	background: transparent;
 	border: 0px;
 	padding: 5px;
+	width: calc(100% - 10px);
+    height: calc(100% - 10px);
 }`,
 `#` + uiBoxCloseLink + `{
 	bottom: 0;
 	right: 5px;
 	position: absolute;
 	cursor: pointer;
+	z-index: 12;
 }`,
 `#` + uiBoxCancelLinkId + `{
 	bottom: 0;
@@ -141,10 +206,12 @@ var uiBoxStyle = [
 	visibility: hidden;
 	right: 50px;
     cursor: pointer;
+    z-index: 12;
 }`,
 `#` + uiBoxLink + ` {
     color: white;
     cursor: pointer;
+    z-index: 12;
 }
 `,
 `#` + uiAutoBoxId + `{
@@ -179,6 +246,36 @@ var previousInput = '';
 var progressWidth = 0;
 var progressDOM = '';
 
+function noop(){
+	//does nothing
+}
+
+function setAutocomplete() {
+	$('#' + uiTextBoxId).autocomplete({
+		source: function (request, response){
+			var results = systemLookupList(request.term);
+			if(results.length === 1 && request.term === results[0])
+				results = new Array();
+			if(autocompleteSuggestNum > 0 && results.length > 0){
+				results = results.slice(0, autocompleteSuggestNum);
+			}
+			response(results);
+		}
+	});
+}
+
+var scriptImport = [
+	{url: 'https://code.jquery.com/jquery-1.12.4.js', callback: noop},
+	{url: 'https://code.jquery.com/ui/1.12.1/jquery-ui.js', callback: setAutocomplete}
+	
+];
+
+var cssImport = [
+	{url: 'https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css', callback: noop},
+];
+
+var selfUrl = 'https://breeze-dev.cloudapp.net/pub/injector.js';
+
 function updateProgressBar() {
 	if(debug) console.log(progressWidth);
 	if (progressWidth >= 100) {
@@ -186,7 +283,7 @@ function updateProgressBar() {
 		progressDOM.style.visibility = 'hidden';
 	} else {
 		progressDOM.style.width = progressWidth + '%';
-		setTimeout(updateProgressBar, 10);
+		setTimeout(updateProgressBar, progressBarRefreshMs);
 	}
 }
 
@@ -194,7 +291,7 @@ function progressInit() {
 	progressDOM = document.getElementById("myBar");
 	progressDOM.style.visibility = 'inherit';
 	progressWidth = 0;
-	setTimeout(updateProgressBar, 10);
+	setTimeout(updateProgressBar, progressBarRefreshMs);
 }
 
 function write_cache(key, data, forceOverwrite){
@@ -306,13 +403,6 @@ function set_item(data, store) {
 }
 
 function clearUp(){
-	/*
-	var selection = $('.' + insertCustomClass);
-	//if(selection.length > 0){
-	for (var each = 0; each < selection.length; each++) {
-		$(selection[each]).html('&nbsp;');
-	}
-	*/
 	writeToTag('.' + insertCustomClass, '&nbsp;');
 }
 
@@ -375,7 +465,6 @@ function showJumpCount(src){
 		if (limited && total2 >= limit) break;
 		if (canceled) break;
 		total2++;
-		// var src = sourceSystemId;
 		var dest = queries[itemKey].to;
 		var full_url = route_url(src, dest);
 		var route_key = routePrefix + src + idSeparator + dest;
@@ -394,19 +483,16 @@ function showJumpCount(src){
 				}
 				set_item(data, true);
 				updateProgressVal();
-				//progressWidth = ((fetch + failed + cached) / total2) * 100;
 			}).fail(function () {
 				failed++;
 				pending--;
 				console.error('failed ', full_url);
 				updateProgressVal();
-				//progressWidth = ((fetch + failed + cached) / total2) * 100;
 			}));
 		} else {
 			cached++;
 			set_item(cache_get(route_key), false);
 			updateProgressVal();
-			//progressWidth = ((fetch + failed + cached) / total2) * 100;
 		}
 	}
 	lastPending = pending;
@@ -417,7 +503,6 @@ function showJumpCount(src){
 function applyStyle(){
 	/* Injects column style into document */
 	var sheet = window.document.styleSheets[0]
-	sheet.insertRule('.' + insertCustomClass + ' { text-align: right; }', sheet.cssRules.length);
 	for(var each in uiBoxStyle){
 		sheet.insertRule(uiBoxStyle[each], sheet.cssRules.length);
 	}
@@ -461,13 +546,11 @@ function asyncGetRetVal(url, retVal) {
 
 function getSystems(){
 	/* Loads systems dictionary indexed by system id from a remtote JSON data source */
-	// if (!Object.keys(resSystemsId).length) resSystemsId = syncGet(resSystemsIdUrl);
 	if (!Object.keys(resSystemsId).length){
 		asyncGetCallback(resSystemsIdUrl, function (data){
 			resSystemsId = data;
 		});
 	}
-	// if (!Object.keys(resSystemsNames).length) resSystemsNames = syncGet(resSystemsNameUrl);
 	if (!Object.keys(resSystemsNames).length) {
 		asyncGetCallback(resSystemsNameUrl, function (data) {
 			resSystemsNames = data;
@@ -560,12 +643,31 @@ function mapEvents(){
 		event.preventDefault();
 		start();
 	});
-	$('#' + uiTextBoxId).on('change paste input keyup', function (event) { //keydown
+	$('#' + uiTextBoxId).on('keydown', function (event) {
+		if(event.keyCode >= 38 && event.keyCode <= 40) {
+			
+			var val = $(this).val().trim();
+			var lookup = systemLookup(val);
+			var carPos = doGetCaretPosition($(this)[0]);
+			if (carPos === val.length && lookup !== '' &&
+			  (event.keyCode === 9 || event.keyCode === 39 || event.keyCode === 13)) {
+				$('#' + uiTextBoxId).val(lookup);
+			}else{
+				// prevents char sur-imposition effect while scrolling in the suggest list with arrow keys
+				if (event.keyCode >= 38 && event.keyCode <= 40)
+					$('#' + uiAutoBoxId).val('');
+			}
+			//if (event.keyCode !== 39) // prevents char sur-imposition effect while scrolling in the suggest list
+			//	$('#' + uiAutoBoxId).val('');
+		}
+	});
+	$('#' + uiTextBoxId).on('change paste input keyup', function (event) { //change
 		if (debug) console.log(event);
 		var val = $(this).val().trim();
 		var lookup = systemLookup(val);
-		var lookupArray = systemLookupList(val);
-		if (event.keyCode === 9 || event.keyCode === 39 || event.keyCode === 13) {
+		var carPos = doGetCaretPosition($(this)[0]);
+		if (false && carPos === val.length && lookup !== '' &&
+		  (event.keyCode === 9 || event.keyCode === 39 || event.keyCode === 13)) {
 			$('#' + uiTextBoxId).val(lookup);
 		}
 		if(previousInput !== val){
@@ -586,6 +688,8 @@ function mapEvents(){
 }
 
 function insertBox(){
+	$('#' + uiBottomBox).remove();
+	$('#' + uiBox).remove();
 	$('body').append(uiBoxHTML);
 	mapEvents();
 }
@@ -598,18 +702,43 @@ function insertHeader(){
 	}
 }
 
-function init(){
-	getSystems();
-	
-	if(!initialized){
-		applyStyle();
-		insertBox();
-		initialized = true;
-	}
-	
-	// start();
+function attachCSS(){
+	for (var each in cssImport)
+		loadCSS(cssImport[each].url, 'injectedCSS' + each, cssImport[each].callback);
 }
 
+function subLoader(index){
+	// synched chained script loader
+	var url = scriptImport[index].url;
+	loadScript(url, function () {
+		console.info('imported ' + url);
+		scriptImport[index].callback();
+		if(++index < Object.keys(scriptImport).length){
+			subLoader(index);
+		}
+	});
+}
+
+function attachScripts(){
+	if(Object.keys(scriptImport).length > 0) subLoader(0);
+}
+
+function reloadSelf(){
+	loadScript(selfUrl, function () {
+		console.info('Realoaded self !');
+		init();
+	});
+}
+
+function init(){
+	getSystems();
+	attachCSS();
+	
+	applyStyle();
+	insertBox();
+	
+	attachScripts();
+}
 
 /*
 # FIXME deprecated
