@@ -1,6 +1,6 @@
 /*
 	Author : clement@fiere.fr
-	date : 13/03/2017 - 15/03/2017
+	date : 13/03/2017 - 16/03/2017
  */
 
 "use strict";
@@ -94,8 +94,6 @@ var ownCache = {};
 
 var idSeparator = '-';
 var routePrefix = 'R' + idSeparator;
-//var systemIdPrefix = 'Sid' + idSeparator;
-//var system_name_prefix = 'Sna' + idSeparator;
 var fetch = 0;
 var failed = 0;
 var pending = 0;
@@ -240,7 +238,6 @@ var uiBoxStyle = [
     background-color: wheat;
 }
 `]
-
 
 var previousInput = '';
 var progressWidth = 0;
@@ -657,8 +654,6 @@ function mapEvents(){
 				if (event.keyCode >= 38 && event.keyCode <= 40)
 					$('#' + uiAutoBoxId).val('');
 			}
-			//if (event.keyCode !== 39) // prevents char sur-imposition effect while scrolling in the suggest list
-			//	$('#' + uiAutoBoxId).val('');
 		}
 	});
 	$('#' + uiTextBoxId).on('change paste input keyup', function (event) { //change
@@ -739,65 +734,3 @@ function init(){
 	
 	attachScripts();
 }
-
-/*
-# FIXME deprecated
-
- function cache_get_or_query(key, callable, url){ // TODO finish
- if (!cache.getItem(key)){
- write_cache(key, callable(url))
- }
- return cache_get(key);
- }
- 
- function sleep(time) {
- return new Promise((resolve) => setTimeout(resolve, time));
- }
-*/
-
-/*
-
-# FIXME old version
-
-function systemInfo(system_id, force_cache) {
-	var dest = baseSystemId;
-	if (system_id === undefined) {
-		console.error('system_id is undefined');
-		return [];
-	}
-	
-	if (system_id === dest) {
-		dest++;
-	}
-	var system_key = systemIdPrefix + system_id;
-	
-	return resSystemsId[system_id];
-	
-	 if(force_cache !== undefined)
-	 write_cache(system_key, force_cache);
-	 
-	 if (!cache.getItem(system_key)) {
-	 //pendRes[system_key] = true;
-	 
-	 full_url = route_url(system_id, dest);
-	 $.get(full_url, function (data, status) {
-	 if (status !== 'success') {
-	 console.warn(status);
-	 }
-	 console.log('Q: system ', system_id, ' is ', name);
-	 //pendRes[system_key] = false
-	 write_cache(system_key, data[0].from);
-	 }).fail(function () {
-	 //pendRes[system_key] = false
-	 console.error('failed at ', full_url);
-	 });
-	 //return systemInfo(system_id);
-	 return '?';
-	 } else {
-	 //pendRes[system_key] = false
-	 data = cache_get(system_key);
-	 return data;
-	 }
-	 
-}
-*/
