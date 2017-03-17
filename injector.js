@@ -117,11 +117,11 @@ var canceled = false;
 var routeUrlBase = '//api.eve-central.com/api/route/from/';
 var resHostedUrlBase = 'https://rawgit.com/Fclem/eve-central-jsTool/master/';
 
-var resSystemsIdUrl = 'data/systems-by-id.json';
-var resSystemsNameUrl = 'data/systems-by-name.json';
-var resRegionsUrl = 'data/regions-names-by-id.json';
-var resJumpsFromUrl = 'data/jumps-by-from-id.json';
-var resJumpsToUrl = 'data/jumps-by-to-id.json';
+var resSystemsIdUrl = 'data/systems-by-id.min.json';
+var resSystemsNameUrl = 'data/systems-by-name.min.json';
+var resRegionsUrl = 'data/regions-names-by-id.min.json';
+var resJumpsFromUrl = 'data/jumps-by-from-id.min.json';
+var resJumpsToUrl = 'data/jumps-by-to-id.min.json';
 var selfUrl = 'injector.js';
 
 function dynSetup(){
