@@ -59,4 +59,18 @@ doLoad();
  
  I also used RegExpr replace to make a dict of system by Id and one by Names, so has to be able to quick search though it from Javascript
  
- I then processed the jump data using a small python script to make two dicts of jumps, one indexed and grouped by "from" (i.e. source system id) and the other by "to" (i.e. destination system id), so as to be able to eventually use them for path finding later-on.
+ I then processed the jump data using a small python script from ```data_indexer``` folder to make two dicts of jumps, one indexed and grouped by "from" (i.e. source system id) and the other by "to" (i.e. destination system id), so as to be able to eventually use them for path finding later-on.
+ 
+### How to use this indexed_jumps.pyx ?
+ As I was concerned that it would be slow-ish, I used Cython. Thus you have to compile the source first :
+ 
+ ```bash
+ cd data_indexer
+ python setup.py build_ext --inplace
+ chmod u+x run.py
+```
+ 
+And then run it :
+```bash
+./run.py
+```
