@@ -6,7 +6,7 @@ import json
 import numpy as np
 import time
 
-
+prefix = 30000000
 progress_settings = {
 	'prefix': 'Progress:',
 	'suffix': 'Complete',
@@ -60,41 +60,43 @@ def get_index(system, a_list):
 	return index_cache[system]
 
 
-def make_index(limit=-1):
+def index_con(index):
+	return int(index) - prefix
+
+
+def make_index():
 	global jump_from_file, jump_to_file
 	
 	source_data_from = get_json(jump_from_file)
 	from_list = source_data_from.keys()
+	
 	source_data_to = get_json(jump_to_file)
 	to_list = source_data_to.keys()
 	
 	source_systems = get_json(systems_file)
 	system_list = source_systems.keys()
 	
+	val_max = index_con(max(from_list)) + 1
+	
 	assert len(source_data_from) > 0 and len(source_data_to) > 0
 	
-	print(len(source_data_from), len(source_data_to))
+	print(len(source_data_from), len(source_data_to), val_max)
 	
-	distance_mat = np.zeros((len(system_list), len(system_list)), dtype=np.int16)
-	print(distance_mat.nbytes)
-	
-	# print(system_list, len(system_list))
+	distance_mat = np.zeros((val_max, val_max), dtype=np.int8)
+	print(distance_mat.nbytes, 'bytes')
 	
 	i, j = 0, 0
-	for each_system in system_list:
-		if each_system in from_list:
-			# print(i, each_system, 'has %s jumps' % len(source_data_from[each_system]))
-			for each_jump in source_data_from[each_system]:
-				# print(each_jump)
-				from_id = get_index(each_system, from_list)
-				to_id = get_index(each_jump, from_list)
-				# print('(%s) %s -> (%s) %s' % (from_id, each_system, to_id, each_jump))
-				distance_mat[from_id, to_id] = 1
-				
-			j += 1
+	for each_from in from_list:
+		# print(i, each_system, 'has %s jumps' % len(source_data_from[each_system]))
+		for each_to in source_data_from[each_from]:
+			from_id = index_con(each_from)
+			to_id = index_con(each_to)
+			# print('(%s) %s -> (%s) %s' % (from_id, each_from, to_id, each_to))
+			distance_mat[from_id, to_id] = 1
+			distance_mat[to_id, from_id] = 1
+			
+		j += 1
 		i += 1
-		if limit > 0 and j>= limit:
-			break
 	
 	print(distance_mat[0:9, 0:9])
 	
@@ -137,3 +139,20 @@ def old():
 	
 	write_file(write_to_file_name % 'to', index_to)
 	write_file(write_to_file_name % 'from', index_from)
+
+
+def old_for():
+	for each_system in system_list:
+		if each_system in from_list:
+			# print(i, each_system, 'has %s jumps' % len(source_data_from[each_system]))
+			for each_jump in source_data_from[each_system]:
+				# print(each_jump)
+				from_id = get_index(each_system, from_list)
+				to_id = get_index(each_jump, from_list)
+				# print('(%s) %s -> (%s) %s' % (from_id, each_system, to_id, each_jump))
+				distance_mat[from_id, to_id] = 1
+			
+			j += 1
+		i += 1
+		if limit > 0 and j >= limit:
+			break
