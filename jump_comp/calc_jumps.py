@@ -17,10 +17,12 @@ progress_settings = {
 jump_from_file = 'data/jumps-by-from-id.json'
 jump_to_file = 'data/jumps-by-to-id.json'
 systems_file = 'data/systems-by-id.json'
+systems_file_names = 'data/systems-by-name.json'
 write_to_file_name = 'jumps_calc.json'
 index_cache = dict()
 
 source_systems = dict()
+source_systems_by_names = dict()
 source_data_to = dict()
 source_data_from = dict()
 jump_mat = None
@@ -29,6 +31,8 @@ to_list = list()
 system_list = list()
 
 DEBUG = False
+
+list_cache = dict()
 
 
 def debug_print(*msg):
@@ -143,7 +147,11 @@ class System(SystemDescriptor):
 	def get(system_id):
 		if isinstance(system_id, System):
 			return system_id
-		return System(source_systems[str(system_id)])
+		try:
+			value = int(system_id)
+			return System(source_systems[unicode(system_id)])
+		except ValueError:
+			return System(source_systems_by_names[unicode(system_id)])
 
 
 class JumpDescriptor(DescriptorAbstract):
@@ -188,10 +196,11 @@ class Jump(JumpDescriptor):
 		return '%s\n%s' % (self.from_str, self.to_str)
 	
 	def __str__(self):
-		return 'jump from %s to %s' % (str(self.from_sys), str(self.to_sys))
+		# return 'jump from %s to %s' % (str(self.from_sys), str(self.to_sys))
+		return '%s -> %s' % (self.from_sys.name, self.to_sys.name)
 	
 	def __repr__(self):
-		return '<Jump %s>' % str(self).replace('\n', ' ')
+		return '<Jump %s -> %s>' % (self.from_sys.name, self.to_sys.name)
 
 
 class JumpList(object):
@@ -213,6 +222,13 @@ class JumpList(object):
 
 	def __getitem__(self, item):
 		return self._list.get(item)
+	
+	@property
+	def jmp_list(self):
+		"""
+		:rtype: list[Jump]
+		"""
+		return self._list.values()
 	
 	def items(self):
 		"""
@@ -263,8 +279,8 @@ def write_file(file_name, data):
 	return True
 
 
-def make_index():
-	global jump_from_file, jump_to_file, source_systems, source_data_to, source_data_from, jump_mat, from_list, to_list, system_list
+def load_data():
+	global jump_from_file, jump_to_file, source_systems, source_data_to, source_data_from, jump_mat, from_list, to_list, system_list, source_systems_by_names
 	
 	source_data_from = get_json(jump_from_file)
 	from_list = source_data_from.keys()
@@ -275,10 +291,10 @@ def make_index():
 	to_list.sort()
 	
 	source_systems = get_json(systems_file)
+	source_systems_by_names = get_json(systems_file_names)
 	system_list = source_systems.keys()
 	system_list.sort()
 	
-	# val_max = index_con(max(from_list)) + 1
 	val_max = len(system_list)
 	
 	assert len(source_data_from) > 0 and len(source_data_to) > 0
@@ -287,29 +303,61 @@ def make_index():
 	
 
 def jump_distance(sys_a, sys_b):
-	system_from = System.get(sys_a)
-	system_to = System.get(sys_b)
-	
-	print('distance from %s (%s) to %s (%s)' % (system_from.name, system_from.systemid, system_to.name, system_to.systemid))
-	print('Gates in %s :' % system_from.name)
-	
-	system_from.print_jump_list()
-	
-	for key, jump in system_from.gate_list.iteritems():
-		pass
-		# print(jump)
-	
-	print('%s :' % system_to.name)
+	return get_route(System.get(sys_a), System.get(sys_b))
 
 
-def get_route(source, dest):
-	assert isinstance(source, System) and isinstance(dest, System)
+def get_route(source, destination, padding=0):
+	assert isinstance(source, System) and isinstance(destination, System)
+	
+	def printer(msg, spe=' '):
+		print((' ' + spe) * padding + unicode(msg))
+		
+	printer('distance from %s (%s) to %s (%s)' % (source.name, source.systemid, destination.name, destination.systemid))
+	
+	return gates_list(source, 2)
 
+
+def gates_list(system, depth=1):
+	assert isinstance(system, System)
+	
+	def printer(msg):
+		print('0 %s' % msg)
+	
+	result = [system.gate_list.jmp_list]
+	printer(system.gate_list.jmp_list)
+	for jump in result[0]:
+		printer(jump)
+		result += gates_list_sub(jump.to_sys, depth)
+	return result
+
+
+def gates_list_sub(source_sys, max_depth=90, cur_depth=1):
+	assert isinstance(source_sys, System)
+	
+	def printer(msg):
+		print('%d %s' % (cur_depth, '  ' * cur_depth + '%s' % msg))
+		
+	printer('from %s (%s gates)' % (source_sys.name, len(source_sys.gate_list.jmp_list)))
+	
+	if source_sys.systemid in list_cache.keys():
+		return list_cache[source_sys.systemid]
+	
+	# printer(source_sys.gate_list.jmp_list)
+	a_list = [source_sys.gate_list.jmp_list]
+	if cur_depth <= max_depth:
+		for jump in a_list[0]:
+			# printer(jump)
+			a_list += gates_list_sub(jump.to_sys, max_depth, cur_depth+1)
+		list_cache.update({source_sys.systemid: a_list})
+	return a_list
+	
 
 start = time.time()
 
-make_index()
-jump_distance(30000076, 30002510)
+load_data()
+# jump_distance(30000076, 30002510)
+jump_distance('Tidacha', 'Rens')
+
 
 end = time.time()
 print('done in %.2f sec' % (end - start))
