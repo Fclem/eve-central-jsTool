@@ -31,8 +31,9 @@ to_list = list()
 system_list = list()
 
 DEBUG = False
+VERBOSE = False
 
-list_cache = dict()
+sys_cache = dict()
 
 
 def debug_print(*msg):
@@ -136,8 +137,29 @@ class System(SystemDescriptor):
 		return '<System %s>' % self
 	
 	@property
+	def gate_list_details(self):
+		return source_data_from[unicode(self.systemid)]
+	
+	@property
 	def gate_list(self):
-		return JumpList(source_data_from[str(self.systemid)])
+		return source_data_from[unicode(self.systemid)].keys()
+	
+	@property
+	def gate_list_int(self):
+		a_list = CustomList()
+		for each in self.gate_list:
+			a_list.append(int(each))
+		return a_list
+
+	def gate_list_from(self, source_sys):
+		source_sys = System.get(source_sys)
+		result = self.gate_list_int
+		# print(result, source_sys.systemid)
+		key = int(source_sys.systemid)
+		if key in result:
+			# print('removed %s' % source_sys.systemid)
+			result.remove(key)
+		return result
 
 	def print_jump_list(self):
 		for key, jump in self.gate_list.iteritems():
@@ -145,13 +167,28 @@ class System(SystemDescriptor):
 
 	@staticmethod
 	def get(system_id):
+		"""
+		:type system_id: int | unicode
+		:rtype: System
+		"""
+		result = None
 		if isinstance(system_id, System):
-			return system_id
-		try:
-			value = int(system_id)
-			return System(source_systems[unicode(system_id)])
-		except ValueError:
-			return System(source_systems_by_names[unicode(system_id)])
+			system_key = system_id.systemid
+			if system_key not in sys_cache.keys():
+				sys_cache.update({ system_key: result })
+		else:
+			try:
+				system_key = int(system_id)
+				if system_key not in sys_cache.keys():
+					result = System(source_systems[unicode(system_key)])
+					sys_cache.update({ system_key: result})
+			except ValueError:
+				system_key = unicode(system_id)
+				if system_key not in sys_cache.keys():
+					result = System(source_systems_by_names[system_key])
+					system_key = result.systemid
+					sys_cache.update({ system_key: result })
+		return sys_cache[system_key]
 
 
 class JumpDescriptor(DescriptorAbstract):
@@ -201,51 +238,6 @@ class Jump(JumpDescriptor):
 	
 	def __repr__(self):
 		return '<Jump %s -> %s>' % (self.from_sys.name, self.to_sys.name)
-
-
-class JumpList(object):
-	_list = dict()
-	from_sys = int
-	
-	def __init__(self, a_list, source=0):
-		if source:
-			final_source = source
-		else:
-			assert len(a_list)
-			final_source = a_list.items()[0][1]['fromsystem']
-		self.from_sys = System.get(final_source)
-		for sys_id, sys in a_list.iteritems():
-			self._list[int(sys_id)] = Jump(sys)
-	
-	def __iter__(self):
-		return self._list.__iter__()
-
-	def __getitem__(self, item):
-		return self._list.get(item)
-	
-	@property
-	def jmp_list(self):
-		"""
-		:rtype: list[Jump]
-		"""
-		return self._list.values()
-	
-	def items(self):
-		"""
-
-		:rtype: list[(int, Jump)]
-		"""
-		return self._list.items()
-	
-	def iteritems(self):
-		"""
-		
-		:rtype:  collections.Iterable[(int, Jump)]
-		"""
-		return self._list.iteritems()
-	
-	def __str__(self):
-		return str(self._list)
 
 
 def printProgressBar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█'):
@@ -302,62 +294,125 @@ def load_data():
 	print(len(source_data_from), len(source_data_to), val_max)
 	
 
-def jump_distance(sys_a, sys_b):
-	return get_route(System.get(sys_a), System.get(sys_b))
-
-
-def get_route(source, destination, padding=0):
-	assert isinstance(source, System) and isinstance(destination, System)
+class CustomList(list):
+	def merge(self, other):
+		assert isinstance(other, list)
+		my_size = len(self)
+		for each_index in range(max(my_size, len(other))):
+			b = other[each_index] if each_index < len(other) else []
+			if each_index < my_size:
+				self[each_index] += b
+			else:
+				self.append(b)
 	
-	def printer(msg, spe=' '):
-		print((' ' + spe) * padding + unicode(msg))
+	@staticmethod
+	def merger(first, other):
+		# print(type(first), type(other))
+		assert type(first) in [list, CustomList]
+		assert type(other) in [list, CustomList]
 		
-	printer('distance from %s (%s) to %s (%s)' % (source.name, source.systemid, destination.name, destination.systemid))
-	
-	return gates_list(source, 2)
-
-
-def gates_list(system, depth=1):
-	assert isinstance(system, System)
-	
-	def printer(msg):
-		print('0 %s' % msg)
-	
-	result = [system.gate_list.jmp_list]
-	printer(system.gate_list.jmp_list)
-	for jump in result[0]:
-		printer(jump)
-		result += gates_list_sub(jump.to_sys, depth)
-	return result
-
-
-def gates_list_sub(source_sys, max_depth=90, cur_depth=1):
-	assert isinstance(source_sys, System)
-	
-	def printer(msg):
-		print('%d %s' % (cur_depth, '  ' * cur_depth + '%s' % msg))
+		return CustomList(first).merge(other)
 		
-	printer('from %s (%s gates)' % (source_sys.name, len(source_sys.gate_list.jmp_list)))
+		new_list = CustomList()
+		for each_index in range(max(len(first), len(other))):
+			a = first[each_index] if each_index < len(first) else []
+			b = other[each_index] if each_index < len(other) else []
+			# print(a, b)
+			new_list.append(a + b)
+		return new_list
+
+
+class RouteCalc(object):
+	sys_from = None
+	sys_to = None
+	reached = list()
+	__reach_list = list()
 	
-	if source_sys.systemid in list_cache.keys():
-		return list_cache[source_sys.systemid]
+	def __init__(self, source, destination):
+		self.sys_from = System.get(source)
+		self.sys_to = System.get(destination)
+		
+		print('Route calc from %s to %s' % (self.sys_from.name, self.sys_to.name))
 	
-	# printer(source_sys.gate_list.jmp_list)
-	a_list = [source_sys.gate_list.jmp_list]
-	if cur_depth <= max_depth:
-		for jump in a_list[0]:
-			# printer(jump)
-			a_list += gates_list_sub(jump.to_sys, max_depth, cur_depth+1)
-		list_cache.update({source_sys.systemid: a_list})
-	return a_list
+	def pretty_print(self):
+		i = 0
+		if DEBUG: print('size %s' % len(self.reach_list))
+		for each in self.reach_list:
+			print(i, each)
+			i += 1
 	
+	@property
+	def reach_list(self):
+		if not self.__reach_list:
+			self.__reach_list = self.compute()
+		return self.__reach_list
+	
+	def compute(self, max_depth=3):
+		self.__reach_list, _ = self._gates_list_sub(self.sys_from, max_depth)
+		return self.__reach_list
+
+	def _has_destination(self, a_list):
+		for each in a_list:
+			if self.sys_to.systemid in each:
+				return True
+		return False
+	
+	def _is_destination(self, sys):
+		return sys == self.sys_to.systemid or sys == self.sys_to
+
+	def _gates_list_sub(self, source_sys, max_depth=90, cur_depth=0, index=0, parent=None):
+		if not isinstance(source_sys, System) :
+			source_sys = System.get(source_sys)
+			
+		def printer(msg, sup=0, force=False):
+			if VERBOSE or force:
+				print('%d %s' % (cur_depth, '  ' * (cur_depth + sup) + '%s' % msg))
+		
+		a_list, found = CustomList(), False
+		
+		if source_sys.systemid in self.reached:
+			printer('skipped %s' % source_sys.systemid)
+			return a_list, found
+		self.reached.append(source_sys.systemid)
+		
+		gate_list = source_sys.gate_list_from(parent) if parent else source_sys.gate_list_int
+		
+		printer('%s from %s (%s) (%s gates : %s)' %
+				(index, source_sys.name, source_sys.systemid, len(gate_list), gate_list))
+		
+		a_list, tmp_list = [gate_list], CustomList()
+		
+		if cur_depth < max_depth:
+			cur_index = 0
+			for jump in gate_list:
+				# if self._has_destination([[jump]]):
+				if self._is_destination(jump):
+					printer('THIS IS IT')
+				reachable, found = self._gates_list_sub(jump, max_depth, cur_depth + 1, cur_index, source_sys)
+				if DEBUG: printer(reachable, 1)
+				tmp_list.merge(reachable)
+				if found:
+					break
+				cur_index += 1
+		a_list += tmp_list
+		return a_list, found
+
+
+def get_route(source_var, destination_var):
+	source, destination = System.get(source_var), System.get(destination_var)
+	
+	print('distance from %s (%s) to %s (%s)' % (source.name, source.systemid, destination.name, destination.systemid))
+	
+	route = RouteCalc(source, destination)
+	route.compute(10)
+	
+	return route
 
 start = time.time()
 
 load_data()
-# jump_distance(30000076, 30002510)
-jump_distance('Tidacha', 'Rens')
-
+route = get_route('Tidacha', 'Rens')
+route.pretty_print()
 
 end = time.time()
 print('done in %.2f sec' % (end - start))
