@@ -1,9 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 from __future__ import print_function
-from time import sleep
 import json
-import numpy as np
 import time
 import inspect
 from threading import Thread
@@ -67,14 +65,6 @@ def get_terminal_size():
 	return int(cr[1]), int(cr[0])
 
 term_size = get_terminal_size()
-
-
-def max_system_name_len():
-	# return len(max(source_systems_by_names.keys())) 8
-	the_max = 0
-	for each in source_systems_by_names.keys():
-		the_max = max(the_max, len(each))
-	return the_max
 
 
 # clem 05/04/2016
@@ -175,7 +165,7 @@ class DescriptorAbstract(object):
 
 class SystemDescriptor(DescriptorAbstract):
 	systemid = int
-	name = unicode
+	name = str
 	regionid = int
 	security = float
 
@@ -192,11 +182,11 @@ class System(SystemDescriptor):
 	
 	@property
 	def gate_list_details(self):
-		return source_data_from[unicode(self.systemid)]
+		return source_data_from[str(self.systemid)]
 	
 	@property
 	def gate_list(self):
-		return source_data_from[unicode(self.systemid)].keys()
+		return source_data_from[str(self.systemid)].keys()
 	
 	@property
 	def gate_list_int(self):
@@ -208,15 +198,13 @@ class System(SystemDescriptor):
 	def gate_list_from(self, source_sys):
 		source_sys = System.get(source_sys)
 		result = self.gate_list_int
-		# print(result, source_sys.systemid)
 		key = int(source_sys.systemid)
 		if key in result:
-			# print('removed %s' % source_sys.systemid)
 			result.remove(key)
 		return result
 
 	def print_jump_list(self):
-		for key, jump in self.gate_list.iteritems():
+		for key, jump in self.gate_list:
 			print(jump)
 
 	@staticmethod
@@ -234,10 +222,10 @@ class System(SystemDescriptor):
 			try:
 				system_key = int(system_id)
 				if system_key not in sys_cache.keys():
-					result = System(source_systems[unicode(system_key)])
+					result = System(source_systems[str(system_key)])
 					sys_cache.update({ system_key: result})
 			except ValueError:
-				system_key = unicode(system_id)
+				system_key = str(system_id)
 				if system_key not in sys_cache.keys():
 					result = System(source_systems_by_names[system_key])
 					system_key = result.systemid
@@ -246,18 +234,6 @@ class System(SystemDescriptor):
 
 
 class JumpDescriptor(DescriptorAbstract):
-	"""
-	 "30000003": {
-        "30000001": {"fromconstellation": 20000001, "fromsystem": 30000003, "toregion": 10000001, "fromregion":
-        10000001, "toconstellation": 20000001, "tosystem": 30000001},
-        "30000052": {"fromconstellation": 20000001, "fromsystem": 30000003, "toregion": 10000001, "fromregion":
-        10000001, "toconstellation": 20000008, "tosystem": 30000052},
-        "30000084": {"fromconstellation": 20000001, "fromsystem": 30000003, "toregion": 10000001, "fromregion":
-        10000001, "toconstellation": 20000012, "tosystem": 30000084},
-        "30000007": {"fromconstellation": 20000001, "fromsystem": 30000003, "toregion": 10000001, "fromregion":
-        10000001, "toconstellation": 20000001, "tosystem": 30000007}
-    },
-	"""
 	fromconstellation = int
 	fromsystem = int
 	toregion = int
@@ -307,7 +283,7 @@ class JumpFromJson(JumpDescriptor):
 		return Jump(JumpFromJson(some_json))
 
 
-def printProgressBar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█'):
+def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█'):
 	"""
 	Call in a loop to create terminal progress bar
 	@params:
@@ -339,26 +315,28 @@ def write_file(file_name, data):
 
 
 def load_data():
-	global jump_from_file, jump_to_file, source_systems, source_data_to, source_data_from, jump_mat, from_list, to_list, system_list, source_systems_by_names
+	global jump_from_file, jump_to_file, source_systems, source_data_to, \
+		source_data_from, from_list, to_list, system_list, source_systems_by_names
 	
 	source_data_from = get_json(jump_from_file)
-	from_list = source_data_from.keys()
+	from_list = list(source_data_from.keys())
 	from_list.sort()
 	
 	source_data_to = get_json(jump_to_file)
-	to_list = source_data_to.keys()
+	to_list = list(source_data_to.keys())
 	to_list.sort()
 	
 	source_systems = get_json(systems_file)
 	source_systems_by_names = get_json(systems_file_names)
-	system_list = source_systems.keys()
+	system_list = list(source_systems.keys())
 	system_list.sort()
 	
 	val_max = len(system_list)
 	
 	assert len(source_data_from) > 0 and len(source_data_to) > 0
 	
-	print(len(source_data_from), len(source_data_to), val_max)
+	if DEBUG:
+		print(len(source_data_from), len(source_data_to), val_max)
 	
 
 class CustomList(list):
@@ -387,8 +365,9 @@ class RouteCalc(object):
 	reached = list()
 	__reach_list = list()
 	__route = list()
+	# ALGOS = (RouteCalc._gates_list_sub_DFS, RouteCalc._gates_list_sub_BFS)
 	
-	def __init__(self, source, destination):
+	def __init__(self, source, destination, algo=None):
 		self.sys_from = System.get(source)
 		self.sys_to = System.get(destination)
 	
@@ -417,11 +396,11 @@ class RouteCalc(object):
 		size = len(route_cache.keys())
 		print('Route cache has %s items (means %s routes, plus reverse)' % (size, size / 2))
 		max_len = 0
-		for key, jump_list in route_cache.iteritems():
+		for key, jump_list in route_cache.items():
 			max_len = max(max_len, len(System.get(key[0]).name), len(System.get(key[1]).name))
 		
-		for key, jump_list in route_cache.iteritems():
-			print('%s -> %s %s:' % (System.get(key[0]).name, System.get(key[1]).name, key) )
+		for key, jump_list in route_cache.items():
+			print('%s -> %s %s:' % (System.get(key[0]).name, System.get(key[1]).name, key))
 			if compact:
 				print('  %s' % jump_list)
 			else:
@@ -448,7 +427,7 @@ class RouteCalc(object):
 	
 	@property
 	def distance(self):
-		return len(self.route_id_list) - 1
+		return len(self.route_id_list)
 	
 	@property
 	def __route_reversed(self):
@@ -461,9 +440,9 @@ class RouteCalc(object):
 		})
 	
 	def compute(self, max_depth=DEFAULT_MAX_DEPTH):
-		print('Route calc from %s to %s' % (self.sys_from.name, self.sys_to.name), end=' : ')
+		print('Route from %s to %s' % (self.sys_from.name, self.sys_to.name), end=' : ')
 		self.__route = list()
-		temp, found, found_depth = self._gates_list_sub(self.sys_from, max_depth)
+		temp, found, found_depth = self._gates_list_sub_DFS(self.sys_from, max_depth)
 		if found:
 			self.__reach_list = temp[0:found_depth]
 			self.__cache_add()
@@ -480,10 +459,76 @@ class RouteCalc(object):
 	
 	def _is_destination(self, sys):
 		return sys == self.sys_to.systemid or sys == self.sys_to
+	
+	# TODO
+	def _gates_list_sub_BFS(self, source_sys, max_depth=DEFAULT_MAX_DEPTH, cur_depth=0, index=0, parent=None):
+		""" Breadth-first search style
+		
+		return the shortest route if possible within max_depth
+		"""
+		if not isinstance(source_sys, System):
+			source_sys = System.get(source_sys)
+		if not parent:
+			parent = self.sys_from
+		
+		def stop_predicate():
+			return cur_depth > max_depth
+		
+		def printer(msg, sup=0, force=False, dead_end=False):
+			if VERBOSE or force:
+				MAX_DEF_CONST = ' #MAX_DEF#'
+				DEAD_END_CONST = ' #DEAD_END#'
+				max_str = MAX_DEF_CONST if stop_predicate() else ''
+				line_str = '%03d %s' % (cur_depth, '|  ' * (cur_depth + sup) + '%s' % msg)
+				dead_end_str = DEAD_END_CONST.rjust(len(MAX_DEF_CONST) + 2) if dead_end else ''
+				sup_str = dead_end_str + max_str
+				print(line_str.ljust(term_size[0] - len(dead_end_str)) + sup_str if sup_str else line_str)
+		
+		a_list, found, found_depth = CustomList(), False, -1
+		
+		if source_sys.systemid in self.reached:
+			printer('skipped %s' % source_sys.systemid)
+			return a_list, found, found_depth
+		self.reached.append(source_sys.systemid)
+		
+		gate_list = source_sys.gate_list_from(parent) if parent else source_sys.gate_list_int
+		
+		line_str1 = '%s %s (%s)' % (index if cur_depth else '^', source_sys.name, source_sys.systemid)
+		printer(line_str1, dead_end=len(gate_list) == 0)
+		
+		if not stop_predicate():
+			if gate_list:
+				printer('| %s has %s gates : (%s%s)' %
+						(source_sys.name, len(gate_list) + 1, gate_list, ' + %s' % parent.name if parent else ''))
+			
+			a_list, tmp_list = [gate_list], CustomList()
+			cur_index = 0
+			for jump in gate_list:
+				if self._is_destination(jump):
+					found_depth = cur_depth
+					printer('FOUND %s' % found_depth)
+					found = True
+					self.__route.append(jump)
+					break
+				reachable, found, found_depth = \
+					self._gates_list_sub_DFS(jump, max_depth, cur_depth + 1, cur_index, source_sys)
+				if DEBUG: printer(reachable, 1)
+				tmp_list.merge(reachable)
+				if found:
+					self.__route.insert(0, jump)
+					printer('BACK %s' % found_depth)
+					break
+				cur_index += 1
+			a_list += tmp_list
+		return a_list, found, found_depth
 
 	# @new_thread
-	def _gates_list_sub(self, source_sys, max_depth=DEFAULT_MAX_DEPTH, cur_depth=0, index=0, parent=None):
-		if not isinstance(source_sys, System) :
+	def _gates_list_sub_DFS(self, source_sys, max_depth=DEFAULT_MAX_DEPTH, cur_depth=0, index=0, parent=None):
+		""" Depth-First Search style
+		
+		i.e. return the longest route given a specific max_depth
+		"""
+		if not isinstance(source_sys, System):
 			source_sys = System.get(source_sys)
 		if not parent:
 			parent = self.sys_from
@@ -527,7 +572,7 @@ class RouteCalc(object):
 					found = True
 					self.__route.append(jump)
 					break
-				reachable, found, found_depth = self._gates_list_sub(jump, max_depth, cur_depth + 1, cur_index, source_sys)
+				reachable, found, found_depth = self._gates_list_sub_DFS(jump, max_depth, cur_depth + 1, cur_index, source_sys)
 				if DEBUG: printer(reachable, 1)
 				tmp_list.merge(reachable)
 				if found:
@@ -542,10 +587,11 @@ class RouteCalc(object):
 def get_route(source_var, destination_var):
 	source, destination = System.get(source_var), System.get(destination_var)
 	
-	print('distance from %s (%s) to %s (%s)' % (source.name, source.systemid, destination.name, destination.systemid))
+	if DEBUG:
+		print('distance from %s (%s) to %s (%s)' % (source.name, source.systemid, destination.name, destination.systemid))
 	
 	route = RouteCalc(source, destination)
-	route.compute(15)
+	route.compute(6)
 	
 	return route
 
@@ -555,6 +601,6 @@ load_data()
 if __name__ == '__main__':
 	start = time.time()
 	route = get_route('Tidacha', 'Rens')
-	route.route_cache_pp()
+	RouteCalc.route_cache_pp()
 	end = time.time()
 	print('done in %.2f sec' % (end - start))
