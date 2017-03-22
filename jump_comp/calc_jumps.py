@@ -4,6 +4,7 @@ from __future__ import print_function
 import json
 import time
 import inspect
+from enum import Enum
 from threading import Thread
 
 prefix = 30000000
@@ -28,7 +29,7 @@ to_list = list()
 system_list = list()
 
 DEBUG = False
-VERBOSE = False
+VERBOSE = True
 
 sys_cache = dict()
 jump_distance_cache = dict()
@@ -42,27 +43,29 @@ def get_terminal_size():
 	import os
 	env = os.environ
 	
-	def ioctl_GWINSZ(fd):
+	def ioctl__g_w_i_n_s_z(file_desc):
 		try:
-			import fcntl, termios, struct, os
-			cr = struct.unpack('hh', fcntl.ioctl(fd, termios.TIOCGWINSZ,
-				'1234'))
+			import fcntl
+			import termios
+			import struct
+			cr = struct.unpack('hh', fcntl.ioctl(file_desc, termios.TIOCGWINSZ, '1234'))
 		except:
 			return
 		return cr
 	
-	cr = ioctl_GWINSZ(0) or ioctl_GWINSZ(1) or ioctl_GWINSZ(2)
+	cr = ioctl__g_w_i_n_s_z(0) or ioctl__g_w_i_n_s_z(1) or ioctl__g_w_i_n_s_z(2)
 	if not cr:
 		try:
 			fd = os.open(os.ctermid(), os.O_RDONLY)
-			cr = ioctl_GWINSZ(fd)
+			cr = ioctl__g_w_i_n_s_z(fd)
 			os.close(fd)
 		except:
 			pass
 	if not cr:
 		cr = (env.get('LINES', TERM_FALLBACK_HEIGHT), env.get('COLUMNS', TERM_FALLBACK_WIDTH))
-
+	
 	return int(cr[1]), int(cr[0])
+
 
 term_size = get_terminal_size()
 
@@ -85,6 +88,8 @@ def debug_print(*msg):
 	if DEBUG:
 		print(msg)
 
+class DestinationFound(GeneratorExit):
+	pass
 
 class OriginOrDestinationNotFound(RuntimeError):
 	pass
@@ -186,7 +191,9 @@ class System(SystemDescriptor):
 	
 	@property
 	def gate_list(self):
-		return source_data_from[str(self.systemid)].keys()
+		res = list(source_data_from[str(self.systemid)].keys())
+		res.sort()
+		return res
 	
 	@property
 	def gate_list_int(self):
@@ -194,7 +201,7 @@ class System(SystemDescriptor):
 		for each in self.gate_list:
 			a_list.append(int(each))
 		return a_list
-
+	
 	def gate_list_from(self, source_sys):
 		source_sys = System.get(source_sys)
 		result = self.gate_list_int
@@ -202,34 +209,34 @@ class System(SystemDescriptor):
 		if key in result:
 			result.remove(key)
 		return result
-
+	
 	def print_jump_list(self):
 		for key, jump in self.gate_list:
 			print(jump)
-
+	
 	@staticmethod
 	def get(system_id):
 		"""
-		:type system_id: int | unicode
+		:type system_id: int | str | System
 		:rtype: System
 		"""
 		result = None
 		if isinstance(system_id, System):
 			system_key = system_id.systemid
 			if system_key not in sys_cache.keys():
-				sys_cache.update({ system_key: result })
+				sys_cache.update({system_key: result})
 		else:
 			try:
 				system_key = int(system_id)
 				if system_key not in sys_cache.keys():
 					result = System(source_systems[str(system_key)])
-					sys_cache.update({ system_key: result})
+					sys_cache.update({system_key: result})
 			except ValueError:
 				system_key = str(system_id)
 				if system_key not in sys_cache.keys():
 					result = System(source_systems_by_names[system_key])
 					system_key = result.systemid
-					sys_cache.update({ system_key: result })
+					sys_cache.update({system_key: result})
 		return sys_cache[system_key]
 
 
@@ -244,7 +251,7 @@ class JumpDescriptor(DescriptorAbstract):
 
 class Jump(object):
 	def __init__(self, sys_from, sys_to=None):
-		assert isinstance(sys_from, JumpFromJson) or sys_from and sys_to
+		assert isinstance(sys_from, JumpFromJson) or sys_from and sys_to and isinstance(sys_from, (int, str, System))
 		if isinstance(sys_from, JumpFromJson):
 			self.sys_from = System.get(sys_from.fromsystem)
 			self.sys_to = System.get(sys_from.tosystem)
@@ -267,10 +274,10 @@ class Jump(object):
 		# return 'jump from %s to %s' % (str(self.from_sys), str(self.to_sys))
 		return '%s -> %s' % (self.sys_from.name, self.sys_to.name)
 	
-	def pretty_col(self, width=10):
+	def pretty_col(self, width: int = 10):
 		return '%s -> %s' % (self.sys_from.name.ljust(width), self.sys_to.name.rjust(width))
 	
-	def pretty(self, width=10):
+	def pretty(self, width: int = 10):
 		return '%s ->  %s' % (self.sys_from.name.ljust(width), self.sys_to.name)
 	
 	def __repr__(self):
@@ -337,7 +344,7 @@ def load_data():
 	
 	if DEBUG:
 		print(len(source_data_from), len(source_data_to), val_max)
-	
+
 
 class CustomList(list):
 	def merge(self, other):
@@ -356,20 +363,29 @@ class CustomList(list):
 		assert type(other) in [list, CustomList]
 		
 		return CustomList(first).merge(other)
+	
+
+class AlgorithmEnum(Enum):
+	DFS = 0
+	BFS = 1
 
 
 class RouteCalc(object):
 	DEFAULT_MAX_DEPTH = 90
 	sys_from = None
 	sys_to = None
-	reached = list()
-	__reach_list = list()
+	__reached = list()
+	# __reach_list = list()
 	__route = list()
-	# ALGOS = (RouteCalc._gates_list_sub_DFS, RouteCalc._gates_list_sub_BFS)
+	__selected_algorithm = None
+	__safe_max_depth = 90
 	
-	def __init__(self, source, destination, algo=None):
+	default_algorithm_type = AlgorithmEnum.DFS
+	
+	def __init__(self, source, destination, algorithm: AlgorithmEnum = default_algorithm_type):
 		self.sys_from = System.get(source)
 		self.sys_to = System.get(destination)
+		self.__selected_algorithm = algorithm
 	
 	def reach_pp(self):
 		i = 0
@@ -380,21 +396,28 @@ class RouteCalc(object):
 			i += 1
 	
 	@property
+	def __algorithm_router(self):
+		assert type(self.__selected_algorithm) is AlgorithmEnum
+		dispatch = {AlgorithmEnum.DFS: self._gates_list_sub_DFS, AlgorithmEnum.BFS: self._gates_list_sub_BFS}
+		return dispatch.get(self.__selected_algorithm, self._gates_list_sub_DFS)
+	
+	@property
 	def reach_list(self):
-		if not self.__reach_list:
-			self.compute()
-		return self.__reach_list
+		return list()
+		# if not self.__reach_list:
+		# 	self.compute()
+		# return self.__reach_list
 	
 	@property
 	def route_id_list(self):
-		if not self.__route:
-			self.compute()
+		# if not self.__route:
+		# 	self.compute()
 		return self.__route
 	
 	@staticmethod
 	def route_cache_pp(compact=False):
-		size = len(route_cache.keys())
-		print('Route cache has %s items (means %s routes, plus reverse)' % (size, size / 2))
+		size = len(list(route_cache.keys()))
+		print('Route cache has %s items (means %s routes, plus reverse)' % (size, int(size / 2)))
 		max_len = 0
 		for key, jump_list in route_cache.items():
 			max_len = max(max_len, len(System.get(key[0]).name), len(System.get(key[1]).name))
@@ -434,23 +457,25 @@ class RouteCalc(object):
 		return list(self.__route.__reversed__())[1:] + [self.sys_from.systemid]
 	
 	def __cache_add(self):
-		route_cache.update({
-			(self.sys_from.systemid, self.sys_to.systemid): self.route,
-			(self.sys_to.systemid, self.sys_from.systemid): self.route_reversed
-		})
+		if self.route:
+			route_cache.update({
+				(self.sys_from.systemid, self.sys_to.systemid): self.route,
+				(self.sys_to.systemid, self.sys_from.systemid): self.route_reversed
+			})
 	
 	def compute(self, max_depth=DEFAULT_MAX_DEPTH):
-		print('Route from %s to %s' % (self.sys_from.name, self.sys_to.name), end=' : ')
 		self.__route = list()
-		temp, found, found_depth = self._gates_list_sub_DFS(self.sys_from, max_depth)
+		temp, found, found_depth = self.__algorithm_router(self.sys_from, max_depth)
+		print('%s Route from %s to %s ' % (self.__selected_algorithm.name, self.sys_from.name, self.sys_to.name),
+			end=' : ')
 		if found:
-			self.__reach_list = temp[0:found_depth]
+			# self.__reach_list = temp[0:found_depth]
 			self.__cache_add()
-			print('%s jumps' % self.distance)
+			print('%s jumps (comp %s jump)' % (self.distance, found_depth))
 		else:
-			self.__reach_list = temp
+			# self.__reach_list = temp
 			print('NOT FOUND (depth %s)' % max_depth)
-
+	
 	def _has_destination(self, a_list):
 		for each in a_list:
 			if self.sys_to.systemid in each:
@@ -458,18 +483,16 @@ class RouteCalc(object):
 		return False
 	
 	def _is_destination(self, sys):
-		return sys == self.sys_to.systemid or sys == self.sys_to
+		return int(sys) == self.sys_to.systemid or sys == self.sys_to
 	
 	# TODO
-	def _gates_list_sub_BFS(self, source_sys, max_depth=DEFAULT_MAX_DEPTH, cur_depth=0, index=0, parent=None):
+	def _gates_list_sub_BFS(self, source_sys, max_depth=DEFAULT_MAX_DEPTH, cur_depth=0):
 		""" Breadth-first search style
 		
 		return the shortest route if possible within max_depth
 		"""
 		if not isinstance(source_sys, System):
 			source_sys = System.get(source_sys)
-		if not parent:
-			parent = self.sys_from
 		
 		def stop_predicate():
 			return cur_depth > max_depth
@@ -484,44 +507,103 @@ class RouteCalc(object):
 				sup_str = dead_end_str + max_str
 				print(line_str.ljust(term_size[0] - len(dead_end_str)) + sup_str if sup_str else line_str)
 		
-		a_list, found, found_depth = CustomList(), False, -1
+		found, found_depth = False, -1
 		
-		if source_sys.systemid in self.reached:
-			printer('skipped %s' % source_sys.systemid)
-			return a_list, found, found_depth
-		self.reached.append(source_sys.systemid)
+		# gate_list = source_sys.gate_list_from(self.sys_from)
+		gate_list = source_sys.gate_list_int
 		
-		gate_list = source_sys.gate_list_from(parent) if parent else source_sys.gate_list_int
+		#line_str1 = '%s (%s)' % (source_sys.name, source_sys.systemid)
+		# printer(line_str1, dead_end=len(gate_list) == 0)
 		
-		line_str1 = '%s %s (%s)' % (index if cur_depth else '^', source_sys.name, source_sys.systemid)
-		printer(line_str1, dead_end=len(gate_list) == 0)
+		# visited = gate_list
+		# reach_list = [gate_list]
 		
-		if not stop_predicate():
-			if gate_list:
-				printer('| %s has %s gates : (%s%s)' %
-						(source_sys.name, len(gate_list) + 1, gate_list, ' + %s' % parent.name if parent else ''))
+		#if gate_list:
+		#	printer('%s has %s gates : (%s%s)' %
+		#			(source_sys.name, len(gate_list) + 1, gate_list, ' + %s' % self.sys_from.name))
+		
+		if False:
+			try:
+				while not stop_predicate():
+					# found = self.sys_to.systemid in reach_list[cur_depth]
+					printer('can reach %s systems' % len(reach_list[cur_depth]))
+					# if found:
+					#	found_depth = cur_depth
+					#	raise DestinationFound('outside')
+					
+					next_depth = cur_depth + 1
+					
+					for each in reach_list[cur_depth]:
+						# gate_list = System.get(each).gate_list_int
+						# new_gate_list = []
+						if self._is_destination(each):
+							found_depth = cur_depth
+							raise DestinationFound('I0')
+						reach_list.append(list())
+						# printer(reach_list[next_depth])
+						for gate in System.get(each).gate_list_int:
+							if gate not in visited:
+								reach_list[next_depth].append(gate)
+							if self._is_destination(gate):
+								found_depth = next_depth
+								raise DestinationFound('I1')
+							
+								# new_gate_list.append(gate)
+								# visited.append(gate)
+						#reach_list[next_depth] += new_gate_list
+					reach_list.append(CustomList())
+					# next_depth = cur_depth + 1
+					cur_depth += 1
+			except DestinationFound as e:
+				printer('Found at depth %s (%s)' % (found_depth, e))
+				printer('depth list %s' % reach_list[found_depth])
+				found = True
+		else:
+			self.__reached = list()
+			level = self.__next_level_gates(gate_list)
+			# reach_list, level = self.__next_level_gates(self.sys_from)
 			
-			a_list, tmp_list = [gate_list], CustomList()
-			cur_index = 0
-			for jump in gate_list:
-				if self._is_destination(jump):
-					found_depth = cur_depth
-					printer('FOUND %s' % found_depth)
-					found = True
-					self.__route.append(jump)
-					break
-				reachable, found, found_depth = \
-					self._gates_list_sub_DFS(jump, max_depth, cur_depth + 1, cur_index, source_sys)
-				if DEBUG: printer(reachable, 1)
-				tmp_list.merge(reachable)
-				if found:
-					self.__route.insert(0, jump)
-					printer('BACK %s' % found_depth)
-					break
-				cur_index += 1
-			a_list += tmp_list
-		return a_list, found, found_depth
-
+		return [], level != -1, level + 1
+	
+	def __next_level_gates(self, gate_list, depth=0):
+		def stop_predicate():
+			return depth >= self.__safe_max_depth - 1
+		
+		def printer(msg, offset=0, force=False, dead_end=False):
+			if VERBOSE or force:
+				MAX_DEF_CONST = ' #MAX_DEF#'
+				DEAD_END_CONST = ' #DEAD_END#'
+				max_str = MAX_DEF_CONST if stop_predicate() else ''
+				line_str = '%03d %s' % (depth, '|  ' * (depth + offset) + '%s' % msg)
+				dead_end_str = DEAD_END_CONST.rjust(len(MAX_DEF_CONST) + 2) if dead_end else ''
+				sup_str = dead_end_str + max_str
+				print(line_str.ljust(term_size[0] - len(dead_end_str)) + sup_str if sup_str else line_str)
+		
+		a_list = list()
+		
+		if stop_predicate():
+			printer('ROCK BOTTOM')
+			return -1
+		try:
+			for each in gate_list:
+				if self._is_destination(each):
+					raise DestinationFound('l1-%s' % depth)
+				new_gate_list = System.get(each).gate_list_int
+				printer('%s : %s' % (each, new_gate_list))
+				for gate in new_gate_list:
+					if self._is_destination(gate):
+						depth += 1
+						raise DestinationFound('l2-%s' % depth)
+					if gate not in self.__reached:
+						self.__reached.append(gate)
+						a_list.append(gate)
+			printer('reachable %s' % a_list)
+			
+		except DestinationFound as e:
+			printer('found (%s) : %s' % (e, a_list))
+			return depth
+		return self.__next_level_gates(a_list, depth + 1)
+	
 	# @new_thread
 	def _gates_list_sub_DFS(self, source_sys, max_depth=DEFAULT_MAX_DEPTH, cur_depth=0, index=0, parent=None):
 		""" Depth-First Search style
@@ -548,10 +630,10 @@ class RouteCalc(object):
 		
 		a_list, found, found_depth = CustomList(), False, -1
 		
-		if source_sys.systemid in self.reached:
+		if source_sys.systemid in self.__reached:
 			printer('skipped %s' % source_sys.systemid)
 			return a_list, found, found_depth
-		self.reached.append(source_sys.systemid)
+		self.__reached.append(source_sys.systemid)
 		
 		gate_list = source_sys.gate_list_from(parent) if parent else source_sys.gate_list_int
 		
@@ -561,7 +643,7 @@ class RouteCalc(object):
 		if not stop_predicate():
 			if gate_list:
 				printer('| %s has %s gates : (%s%s)' %
-					(source_sys.name, len(gate_list) + 1, gate_list, ' + %s' % parent.name if parent else ''))
+						(source_sys.name, len(gate_list) + 1, gate_list, ' + %s' % parent.name if parent else ''))
 			
 			a_list, tmp_list = [gate_list], CustomList()
 			cur_index = 0
@@ -572,8 +654,10 @@ class RouteCalc(object):
 					found = True
 					self.__route.append(jump)
 					break
-				reachable, found, found_depth = self._gates_list_sub_DFS(jump, max_depth, cur_depth + 1, cur_index, source_sys)
-				if DEBUG: printer(reachable, 1)
+				reachable, found, found_depth = self._gates_list_sub_DFS(jump, max_depth, cur_depth + 1, cur_index,
+					source_sys)
+				if DEBUG:
+					printer(reachable, 1)
 				tmp_list.merge(reachable)
 				if found:
 					self.__route.insert(0, jump)
@@ -588,18 +672,21 @@ def get_route(source_var, destination_var):
 	source, destination = System.get(source_var), System.get(destination_var)
 	
 	if DEBUG:
-		print('distance from %s (%s) to %s (%s)' % (source.name, source.systemid, destination.name, destination.systemid))
+		print(
+			'distance from %s (%s) to %s (%s)' % (source.name, source.systemid, destination.name,
+			destination.systemid))
 	
-	route = RouteCalc(source, destination)
-	route.compute(6)
+	res_route = RouteCalc(source, destination, AlgorithmEnum.BFS)
+	res_route.compute(8)
 	
-	return route
+	return res_route
 
 
 load_data()
 
 if __name__ == '__main__':
 	start = time.time()
+	route = get_route('Tidacha', 30000077)
 	route = get_route('Tidacha', 'Rens')
 	RouteCalc.route_cache_pp()
 	end = time.time()
