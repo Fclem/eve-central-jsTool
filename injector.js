@@ -773,6 +773,8 @@ function distance_calc(from, to){
 	reachedCache = [];
 	
 	function isDestination(localFrom){
+		localFrom = Number(localFrom);
+		//console.debug('local : ', localFrom, 'eq : ', from, localFrom === from, 'type', typeof localFrom, typeof from);
 		return localFrom === from;
 	}
 	
@@ -781,10 +783,15 @@ function distance_calc(from, to){
 		
 		try {
 			for (var each in gate_list) {
+				console.log('each ' + each);
 				if (isDestination(each)) {
 					throw EventException;
 				}
-				for (var gate in resJumpsFrom[each]) {
+				
+				var gateList = Object.keys(resJumpsFrom[each]);
+				
+				for (var gate in gateList) {
+					console.log('gate ' + gate);
 					if (isDestination(gate)) {
 						depth += 1;
 						throw EventException;
@@ -797,17 +804,22 @@ function distance_calc(from, to){
 			}
 		} catch (e) {
 			console.log('found ' + e + ' ' + a_list);
+			console.log(each + ' ' + gate + ' ' + to);
 			return depth;
 			
 		}
 		if (!a_list.length) {
+			console.log('NOT FOUND');
 			return -1;
 		}
 		
 		return distanceCalcSub(a_list, depth + 1)
 	}
-	
-	console.log('distance : ' + distanceCalcSub(resJumpsFrom[from], 0));
+	from = systemInfo(from).systemid;
+	to = systemInfo(to).systemid;
+	var baseList = Object.keys(resJumpsFrom[from]);
+	console.log('from ' + baseList);
+	console.log('distance : ' + distanceCalcSub(baseList, 0));
 }
 
 
