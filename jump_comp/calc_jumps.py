@@ -29,7 +29,7 @@ to_list = list()
 system_list = list()
 
 DEBUG = False
-VERBOSE = True
+VERBOSE = False
 
 sys_cache = dict()
 jump_distance_cache = dict()
@@ -88,8 +88,10 @@ def debug_print(*msg):
 	if DEBUG:
 		print(msg)
 
+
 class DestinationFound(GeneratorExit):
 	pass
+
 
 class OriginOrDestinationNotFound(RuntimeError):
 	pass
@@ -200,6 +202,13 @@ class System(SystemDescriptor):
 		a_list = CustomList()
 		for each in self.gate_list:
 			a_list.append(int(each))
+		return a_list
+	
+	@property
+	def gate_dict(self):
+		a_list = dict()
+		for each in self.gate_list:
+			a_list.update({each: self.systemid})
 		return a_list
 	
 	def gate_list_from(self, source_sys):
@@ -403,10 +412,10 @@ class RouteCalc(object):
 	
 	@property
 	def reach_list(self):
-		return list()
 		# if not self.__reach_list:
 		# 	self.compute()
 		# return self.__reach_list
+		return list()
 	
 	@property
 	def route_id_list(self):
@@ -423,7 +432,8 @@ class RouteCalc(object):
 			max_len = max(max_len, len(System.get(key[0]).name), len(System.get(key[1]).name))
 		
 		for key, jump_list in route_cache.items():
-			print('%s -> %s %s:' % (System.get(key[0]).name, System.get(key[1]).name, key))
+			# print('%s -> %s %s:' % (System.get(key[0]).name, System.get(key[1]).name, key))
+			print('%s -> %s:' % (System.get(key[0]).name, System.get(key[1]).name))
 			if compact:
 				print('  %s' % jump_list)
 			else:
@@ -462,6 +472,10 @@ class RouteCalc(object):
 				(self.sys_from.systemid, self.sys_to.systemid): self.route,
 				(self.sys_to.systemid, self.sys_from.systemid): self.route_reversed
 			})
+			jump_distance_cache.update({
+				(self.sys_from.systemid, self.sys_to.systemid): self.distance,
+				(self.sys_to.systemid, self.sys_from.systemid): self.distance
+			})
 	
 	def compute(self, max_depth=DEFAULT_MAX_DEPTH):
 		self.__route = list()
@@ -469,11 +483,9 @@ class RouteCalc(object):
 		print('%s Route from %s to %s ' % (self.__selected_algorithm.name, self.sys_from.name, self.sys_to.name),
 			end=' : ')
 		if found:
-			# self.__reach_list = temp[0:found_depth]
 			self.__cache_add()
 			print('%s jumps (comp %s jump)' % (self.distance, found_depth))
 		else:
-			# self.__reach_list = temp
 			print('NOT FOUND (depth %s)' % max_depth)
 	
 	def _has_destination(self, a_list):
@@ -494,75 +506,13 @@ class RouteCalc(object):
 		if not isinstance(source_sys, System):
 			source_sys = System.get(source_sys)
 		
-		def stop_predicate():
-			return cur_depth > max_depth
+		gate_list = source_sys.gate_dict
 		
-		def printer(msg, sup=0, force=False, dead_end=False):
-			if VERBOSE or force:
-				MAX_DEF_CONST = ' #MAX_DEF#'
-				DEAD_END_CONST = ' #DEAD_END#'
-				max_str = MAX_DEF_CONST if stop_predicate() else ''
-				line_str = '%03d %s' % (cur_depth, '|  ' * (cur_depth + sup) + '%s' % msg)
-				dead_end_str = DEAD_END_CONST.rjust(len(MAX_DEF_CONST) + 2) if dead_end else ''
-				sup_str = dead_end_str + max_str
-				print(line_str.ljust(term_size[0] - len(dead_end_str)) + sup_str if sup_str else line_str)
+		self.__reached = list()
+		level, rech = self.__next_level_gates(gate_list)
+		if rech != source_sys.systemid:
+			self.__route.insert(0, source_sys.systemid)
 		
-		found, found_depth = False, -1
-		
-		# gate_list = source_sys.gate_list_from(self.sys_from)
-		gate_list = source_sys.gate_list_int
-		
-		#line_str1 = '%s (%s)' % (source_sys.name, source_sys.systemid)
-		# printer(line_str1, dead_end=len(gate_list) == 0)
-		
-		# visited = gate_list
-		# reach_list = [gate_list]
-		
-		#if gate_list:
-		#	printer('%s has %s gates : (%s%s)' %
-		#			(source_sys.name, len(gate_list) + 1, gate_list, ' + %s' % self.sys_from.name))
-		
-		if False:
-			try:
-				while not stop_predicate():
-					# found = self.sys_to.systemid in reach_list[cur_depth]
-					printer('can reach %s systems' % len(reach_list[cur_depth]))
-					# if found:
-					#	found_depth = cur_depth
-					#	raise DestinationFound('outside')
-					
-					next_depth = cur_depth + 1
-					
-					for each in reach_list[cur_depth]:
-						# gate_list = System.get(each).gate_list_int
-						# new_gate_list = []
-						if self._is_destination(each):
-							found_depth = cur_depth
-							raise DestinationFound('I0')
-						reach_list.append(list())
-						# printer(reach_list[next_depth])
-						for gate in System.get(each).gate_list_int:
-							if gate not in visited:
-								reach_list[next_depth].append(gate)
-							if self._is_destination(gate):
-								found_depth = next_depth
-								raise DestinationFound('I1')
-							
-								# new_gate_list.append(gate)
-								# visited.append(gate)
-						#reach_list[next_depth] += new_gate_list
-					reach_list.append(CustomList())
-					# next_depth = cur_depth + 1
-					cur_depth += 1
-			except DestinationFound as e:
-				printer('Found at depth %s (%s)' % (found_depth, e))
-				printer('depth list %s' % reach_list[found_depth])
-				found = True
-		else:
-			self.__reached = list()
-			level = self.__next_level_gates(gate_list)
-			# reach_list, level = self.__next_level_gates(self.sys_from)
-			
 		return [], level != -1, level + 1
 	
 	def __next_level_gates(self, gate_list, depth=0):
@@ -579,30 +529,37 @@ class RouteCalc(object):
 				sup_str = dead_end_str + max_str
 				print(line_str.ljust(term_size[0] - len(dead_end_str)) + sup_str if sup_str else line_str)
 		
-		a_list = list()
+		a_list = dict()
+		f_append, f_parent = None, None
 		
 		if stop_predicate():
 			printer('ROCK BOTTOM')
 			return -1
 		try:
-			for each in gate_list:
+			for each, source in gate_list.items():
 				if self._is_destination(each):
+					f_append, f_parent = each, source
 					raise DestinationFound('l1-%s' % depth)
 				new_gate_list = System.get(each).gate_list_int
-				printer('%s : %s' % (each, new_gate_list))
 				for gate in new_gate_list:
 					if self._is_destination(gate):
 						depth += 1
-						raise DestinationFound('l2-%s' % depth)
+						f_append, f_parent = gate, each
+						raise DestinationFound('l2-%s from %s' % (depth, (source, each, gate)))
 					if gate not in self.__reached:
 						self.__reached.append(gate)
-						a_list.append(gate)
-			printer('reachable %s' % a_list)
-			
+						a_list.update({gate: each})
 		except DestinationFound as e:
 			printer('found (%s) : %s' % (e, a_list))
-			return depth
-		return self.__next_level_gates(a_list, depth + 1)
+			if DEBUG:
+				print(f_parent, f_append)
+			self.__route.append(f_append)
+			return depth, f_parent
+		num, parent = self.__next_level_gates(a_list, depth + 1)
+		self.__route.insert(0, parent)
+		if DEBUG:
+			print(a_list[parent], parent)
+		return num, a_list[parent]
 	
 	# @new_thread
 	def _gates_list_sub_DFS(self, source_sys, max_depth=DEFAULT_MAX_DEPTH, cur_depth=0, index=0, parent=None):
@@ -677,7 +634,7 @@ def get_route(source_var, destination_var):
 			destination.systemid))
 	
 	res_route = RouteCalc(source, destination, AlgorithmEnum.BFS)
-	res_route.compute(8)
+	res_route.compute(5)
 	
 	return res_route
 
