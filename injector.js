@@ -790,8 +790,8 @@ function distance_calc(from, to){
 						throw EventException;
 					}
 					if (!(gate in reachedCache)) {
-						reachedCache.append(gate);
-						a_list.append(each);
+						reachedCache.push(gate);
+						a_list.push(each);
 					}
 				}
 			}
