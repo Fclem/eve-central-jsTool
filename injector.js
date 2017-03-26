@@ -754,9 +754,20 @@ function init(){
 	insertBox();
 	
 	attachScripts();
+	
+	loadJumps();
 }
 
 var reachedCache = [];
+var resJumpsFrom = [];
+
+function loadJumps(){
+	if (!Object.keys(resJumpsFrom).length) {
+		asyncGetCallback(resJumpsFromUrl, function (data) {
+			resJumpsFrom = data;
+		});
+	}
+}
 
 function distance_calc(from, to){
 	reachedCache = [];
@@ -765,7 +776,7 @@ function distance_calc(from, to){
 		return localFrom === from;
 	}
 	
-	function distance_calc_sub(gate_list, depth) {
+	function distanceCalcSub(gate_list, depth) {
 		var a_list = [];
 		
 		try {
@@ -773,8 +784,7 @@ function distance_calc(from, to){
 				if (isDestination(each)) {
 					throw EventException;
 				}
-				var new_gate_list = [];
-				for (var gate in new_gate_list) {
+				for (var gate in resJumpsFrom[each]) {
 					if (isDestination(gate)) {
 						depth += 1;
 						throw EventException;
@@ -794,9 +804,10 @@ function distance_calc(from, to){
 			return -1;
 		}
 		
-		return distance_calc_sub(a_list, depth + 1)
+		return distanceCalcSub(a_list, depth + 1)
 	}
-	console.debug(resSystemsId);
+	
+	console.log('distance : ' + distanceCalcSub(resJumpsFrom[from], 0));
 }
 
 
