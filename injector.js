@@ -103,12 +103,16 @@ var ownCache = {};
 var idSeparator = '-';
 var routePrefix = 'R' + idSeparator;
 var fetch = 0;
+var computed = 0;
 var failed = 0;
 var pending = 0;
 var cached = 0;
 var total2 = 0;
 var lastPending = 0;
 var total = 0;
+var progress = 0;
+var t0 = 0;
+var t1 = 0;
 var cacheLimitExcedeed = false;
 
 var sourceSystemId;
@@ -466,13 +470,13 @@ function showStats() {
 		}
 		var cache_score = Number(( (cached / total2) * 100.).toFixed(2));
 		console.log('', total2, ' lookups, ', fetch, ' queries' + has_failed + ', ', cached, ' cached loads' +
-		  ' (out of ', total, ' items), ', cache_score, '% cache hit');
+		  ', ', computed, ' computed (out of ', total, ' items), ', cache_score, '% cache hit');
 		after();
 	}
 }
 
 function updateProgressVal(){
-	progressWidth = ((fetch + failed + cached) / total2) * 100;
+	progressWidth = (progress / total2) * 100;
 }
 
 function showJumpCount(src){
@@ -497,8 +501,10 @@ function showJumpCount(src){
 				if (debug) console.log('name', routePrefix + dest);
 				var distance = distance_calc(src, dest);
 				if(distance > 0){
+					computed++;
+					progress++;
 					displayJumps(distance, routePrefix + dest);
-					fetch++;
+					updateProgressVal();
 				}else
 					fallBack = true;
 			}
@@ -510,23 +516,24 @@ function showJumpCount(src){
 				}
 				resXHRlist.push($.get(full_url, function (data, status) {
 					fetch++;
+					progress++;
 					pending--;
-					if (status !== 'success') {
+					if (status !== 'success'){
 						console.error(status);
 					}
 					setItem(data, true);
 					updateProgressVal();
 				}).fail(function () {
 					failed++;
+					progress++;
 					pending--;
 					console.error('failed ', full_url);
 					updateProgressVal();
 				}));
-			}else{
-				console.error('Invalid mode ' + jumpCalcMode);
 			}
 		} else {
 			cached++;
+			progress++;
 			setItem(cache_get(route_key), false);
 			updateProgressVal();
 		}
@@ -608,6 +615,8 @@ function before(){
 	fetch = 0;
 	cached = 0;
 	failed = 0;
+	computed = 0;
+	progress = 0;
 	setInputColor('blue');
 	$('#' + uiTextBoxId)[0].disabled = 'disabled';
 	progressInit();
@@ -623,9 +632,13 @@ function after(){
 	$('#' + uiTextBoxId)[0].focus();
 	running = false;
 	canceled = false;
+	t1 = performance.now();
+	console.log("Done in " + (t1 - t0) + " milliseconds.");
 }
 
 function start(){
+	t0 = performance.now();
+	
 	var systemName = $('#' + uiTextBoxId)[0].value.trim();
 	
 	if(systemName && !running){
@@ -649,7 +662,7 @@ function start(){
 		}catch (e){
 			after();
 			wrongInput();
-			console.error(e)
+			console.error(e);
 			console.warn('System', systemName, 'not found');
 		}
 	}
@@ -839,8 +852,8 @@ function distance_calc(from, to){
 		return distanceCalcSub(a_list, depth + 1)
 	}
 	try{
-		from = systemInfo(from).systemid;
-		to = systemInfo(to).systemid;
+		from = systemInfo(Number(from)).systemid;
+		to = systemInfo(Number(to)).systemid;
 	}catch(e){
 		return -1;
 	}
