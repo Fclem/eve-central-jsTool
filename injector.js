@@ -289,7 +289,7 @@ var scriptImport = [
 ];
 
 var cssImport = [
-	{url: 'https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css', callback: noop},
+	{url: 'https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css', callback: noop}
 ];
 
 function updateProgressBar() {
@@ -755,3 +755,48 @@ function init(){
 	
 	attachScripts();
 }
+
+var reachedCache = [];
+
+function distance_calc(from, to){
+	reachedCache = [];
+	
+	function isDestination(localFrom){
+		return localFrom === from;
+	}
+	
+	function distance_calc_sub(gate_list, depth) {
+		var a_list = [];
+		
+		try {
+			for (var each in gate_list) {
+				if (self._is_destination(each)) {
+					throw EventException;
+				}
+				new_gate_list = System.get(each).gate_list_int;
+				for (gate in new_gate_list) {
+					if (self._is_destination(gate)) {
+						depth += 1;
+						throw
+					}
+					if (!(gate in reachedCache)) {
+						self.__reached.append(gate)
+						a_list.update({gate: each})
+					}
+				}
+			}
+		} catch (e) {
+			console.log('found ' + e + ' ' + a_list);
+			return depth;
+			
+		}
+		if (!a_list.length) {
+			return -1;
+		}
+		
+		return distance_calc_sub(a_list, depth + 1)
+	}
+	console.debug(resSystemsId);
+}
+
+
