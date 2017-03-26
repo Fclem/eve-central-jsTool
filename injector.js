@@ -1,7 +1,7 @@
 /*
 	Author : Clément Fiere
 	mail : Fclem@users.noreply.github.com
-	date : 13/03/2017 - 16/03/2017
+	date : 13/03/2017 - 16/03/2017, 26/03/2017
 	all right reserved
  */
 
@@ -87,6 +87,7 @@ function doGetCaretPosition(oField) {
 // OWN SOURCES
 
 // SETTINGS //
+var jumpCalcMode = 'json';      // set to json for local distance comp, or xhr for http queries to eve-central
 var debug = false;              // enables verbosity
 var limited = false;            // enables the limitation of XHR queries to be issued
 var limit = 50;                 // value of the limit
@@ -396,23 +397,27 @@ function writeToTag(tagSelector, data) {
 	 });
 }
 
-function set_item(data, store) {
+function displayJumps(jumps, tagNameKey){
+	var gen_text = Array(jumps + 1).join('#') + ' (<strong>' + jumps + '</strong> jp)';
+	writeToTag(insertElTag + '[name=' + tagNameKey + ']', gen_text);
+}
+
+function setItem(data, store) {
 	/* writes the number of jumps with a visual indication to every row that has the same destination system
 	 * if store evals to true, store the jump data into cache */
-	var src, dest, cache_key, tag_name_key, gen_text; // prevents eventual overwritting of external vars
+	var src, dest, cache_key, tagNameKey, gen_text; // prevents eventual overwriting of external vars
 	if (data[0] === undefined) {
 		cache_key = routePrefix + sourceSystemId + idSeparator + sourceSystemId;
-		tag_name_key = routePrefix + sourceSystemId;
+		tagNameKey = routePrefix + sourceSystemId;
 		data = [];
 	} else {
 		src = data[0].from;
 		dest = data[data.length - 1].to;
 		cache_key = routePrefix + src.systemid + idSeparator + dest.systemid;
-		tag_name_key = routePrefix + dest.systemid;
+		tagNameKey = routePrefix + dest.systemid;
 	}
 	
-	gen_text = Array(data.length + 1).join('#') + ' (<strong>' + data.length + '</strong> jp)';
-	writeToTag(insertElTag + '[name=' + tag_name_key + ']', gen_text);
+	displayJumps(data.length, tagNameKey);
 	
 	if (store)
 		write_cache(cache_key, data);
@@ -472,7 +477,8 @@ function updateProgressVal(){
 
 function showJumpCount(src){
 	/* request (XHR or from cache) jump distance for each entry and display it in the new column */
-	console.info('Source system is ', systemInfo(sourceSystemId).name);
+	if(src === undefined) src = sourceSystemId;
+	console.info('Source system is ', systemInfo(src).name);
 	
 	var queries = systemRowList;
 	var maxItems = Object.keys(queries).length;
@@ -486,28 +492,42 @@ function showJumpCount(src){
 		var route_key = routePrefix + src + idSeparator + dest;
 		
 		if (!cache.getItem(route_key)) {
-			pending++;
-			if (debug){
-				console.warn('cache miss on ', route_key);
-				console.info('getting ', full_url);
+			var fallBack = false;
+			if(jumpCalcMode.toLowerCase() === 'json'){
+				if (debug) console.log('name', routePrefix + dest);
+				var distance = distance_calc(src, dest);
+				if(distance > 0){
+					displayJumps(distance, routePrefix + dest);
+					fetch++;
+				}else
+					fallBack = true;
 			}
-			resXHRlist.push($.get(full_url, function (data, status) {
-				fetch++;
-				pending--;
-				if (status !== 'success') {
-					console.error(status);
+			if(fallBack || jumpCalcMode.toLowerCase() === 'xhr'){
+				pending++;
+				if (debug) {
+					console.warn('cache miss on ', route_key);
+					console.info('getting ', full_url);
 				}
-				set_item(data, true);
-				updateProgressVal();
-			}).fail(function () {
-				failed++;
-				pending--;
-				console.error('failed ', full_url);
-				updateProgressVal();
-			}));
+				resXHRlist.push($.get(full_url, function (data, status) {
+					fetch++;
+					pending--;
+					if (status !== 'success') {
+						console.error(status);
+					}
+					setItem(data, true);
+					updateProgressVal();
+				}).fail(function () {
+					failed++;
+					pending--;
+					console.error('failed ', full_url);
+					updateProgressVal();
+				}));
+			}else{
+				console.error('Invalid mode ' + jumpCalcMode);
+			}
 		} else {
 			cached++;
-			set_item(cache_get(route_key), false);
+			setItem(cache_get(route_key), false);
 			updateProgressVal();
 		}
 	}
@@ -775,51 +795,59 @@ function distance_calc(from, to){
 	function isDestination(localFrom){
 		localFrom = Number(localFrom);
 		//console.debug('local : ', localFrom, 'eq : ', from, localFrom === from, 'type', typeof localFrom, typeof from);
-		return localFrom === from;
+		return localFrom === to;
+	}
+	
+	function jumpList(sysId){
+		return Object.keys(resJumpsFrom[sysId]);
 	}
 	
 	function distanceCalcSub(gate_list, depth) {
 		var a_list = [];
 		
 		try {
-			for (var each in gate_list) {
-				console.log('each ' + each);
+			if(debug) console.log('gate_list :', gate_list);
+			for (var each_i in gate_list) {
+				var each = gate_list[each_i];
+				if (debug) console.log('each ' + each);
 				if (isDestination(each)) {
 					throw EventException;
 				}
-				
-				var gateList = Object.keys(resJumpsFrom[each]);
-				
-				for (var gate in gateList) {
-					console.log('gate ' + gate);
+				var gateList = jumpList(each);
+				if (debug) console.log('gateList :', gateList);
+				for (var gate_i in gateList) {
+					var gate = gateList[gate_i];
 					if (isDestination(gate)) {
 						depth += 1;
 						throw EventException;
 					}
-					if (!(gate in reachedCache)) {
+					if (!reachedCache.includes(gate)) {
 						reachedCache.push(gate);
-						a_list.push(each);
+						a_list.push(gate);
 					}
 				}
 			}
 		} catch (e) {
-			console.log('found ' + e + ' ' + a_list);
-			console.log(each + ' ' + gate + ' ' + to);
+			if (debug) console.log('found ' + e + ' ' + a_list);
+			if (debug) console.log(each + ' ' + gate + ' ' + to);
 			return depth;
-			
 		}
-		if (!a_list.length) {
-			console.log('NOT FOUND');
+		if (a_list.length === 0) {
+			if (debug) console.log('NOT FOUND');
 			return -1;
 		}
-		
 		return distanceCalcSub(a_list, depth + 1)
 	}
-	from = systemInfo(from).systemid;
-	to = systemInfo(to).systemid;
-	var baseList = Object.keys(resJumpsFrom[from]);
-	console.log('from ' + baseList);
-	console.log('distance : ' + distanceCalcSub(baseList, 0));
+	try{
+		from = systemInfo(from).systemid;
+		to = systemInfo(to).systemid;
+	}catch(e){
+		return -1;
+	}
+	
+	var baseList = jumpList(from);
+	if (debug) console.log('from ', from, 'to ', to);
+	return distanceCalcSub(baseList, 0) + 1;
 }
 
 
