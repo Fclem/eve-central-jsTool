@@ -770,18 +770,18 @@ function distance_calc(from, to){
 		
 		try {
 			for (var each in gate_list) {
-				if (self._is_destination(each)) {
+				if (isDestination(each)) {
 					throw EventException;
 				}
-				new_gate_list = System.get(each).gate_list_int;
-				for (gate in new_gate_list) {
-					if (self._is_destination(gate)) {
+				var new_gate_list = [];
+				for (var gate in new_gate_list) {
+					if (isDestination(gate)) {
 						depth += 1;
-						throw
+						throw EventException;
 					}
 					if (!(gate in reachedCache)) {
-						self.__reached.append(gate)
-						a_list.update({gate: each})
+						reachedCache.append(gate);
+						a_list.append(each);
 					}
 				}
 			}
