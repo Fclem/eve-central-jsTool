@@ -27,6 +27,7 @@ source_data_from = dict()
 from_list = list()
 to_list = list()
 system_list = list()
+all_combinations = list()
 
 DEBUG = False
 VERBOSE = False
@@ -170,14 +171,18 @@ class DescriptorAbstract(object):
 		return is_true
 
 
-class SystemDescriptor(DescriptorAbstract):
+class System(object):
 	systemid = int
 	name = str
 	regionid = int
 	security = float
-
-
-class System(SystemDescriptor):
+	
+	def __init__(self, some_json):
+		self.systemid = int(some_json['systemid'])
+		self.name = str(some_json['name'])
+		self.regionid = int(some_json['regionid'])
+		self.security = float(some_json['security'])
+	
 	def __str__(self):
 		return '%s %s / %s' % (str(self.security), self.regionid, self.name)
 	
@@ -193,7 +198,8 @@ class System(SystemDescriptor):
 	
 	@property
 	def gate_list(self):
-		res = list(source_data_from[str(self.systemid)].keys())
+		# res = list(source_data_from[str(self.systemid)].keys())
+		res = list(source_data_from.get(str(self.systemid), dict()).keys())
 		res.sort()
 		return res
 	
@@ -380,14 +386,14 @@ class AlgorithmEnum(Enum):
 
 
 class RouteCalc(object):
-	DEFAULT_MAX_DEPTH = 90
+	DEFAULT_MAX_DEPTH = 110
 	sys_from = None
 	sys_to = None
 	__reached = list()
 	# __reach_list = list()
 	__route = list()
 	__selected_algorithm = None
-	__safe_max_depth = 90
+	__safe_max_depth = 120
 	
 	default_algorithm_type = AlgorithmEnum.DFS
 	
@@ -440,6 +446,15 @@ class RouteCalc(object):
 				for each in jump_list:
 					print('  %s' % each.pretty(max_len))
 	
+	@staticmethod
+	def distance_cache_pp(details=True):
+		size = len(list(jump_distance_cache.keys()))
+		print('Destination cache has %s items' % size)
+		
+		if details:
+			for key, jump_count in jump_distance_cache.items():
+				print('%s <-> %s : %s' % (System.get(key[0]).name, System.get(key[1]).name, jump_count))
+	
 	def __jumpify(self, a_list, sys_from=None):
 		if not sys_from:
 			sys_from = self.sys_from
@@ -480,13 +495,13 @@ class RouteCalc(object):
 	def compute(self, max_depth=DEFAULT_MAX_DEPTH):
 		self.__route = list()
 		temp, found, found_depth = self.__algorithm_router(self.sys_from, max_depth)
-		print('%s Route from %s to %s ' % (self.__selected_algorithm.name, self.sys_from.name, self.sys_to.name),
-			end=' : ')
+		# print('%s Route from %s to %s ' % (self.__selected_algorithm.name, self.sys_from.name, self.sys_to.name),
+		#	end=' : ')
 		if found:
 			self.__cache_add()
-			print('%s jumps (comp %s jump)' % (self.distance, found_depth))
-		else:
-			print('NOT FOUND (depth %s)' % max_depth)
+			# print('%s jumps (comp %s jump)' % (self.distance, found_depth))
+		# else:
+			# print('NOT FOUND (depth %s)' % max_depth)
 	
 	def _has_destination(self, a_list):
 		for each in a_list:
@@ -530,6 +545,7 @@ class RouteCalc(object):
 				print(line_str.ljust(term_size[0] - len(dead_end_str)) + sup_str if sup_str else line_str)
 		
 		a_list = dict()
+		num, parent = -1, None
 		f_append, f_parent = None, None
 		
 		if stop_predicate():
@@ -555,11 +571,15 @@ class RouteCalc(object):
 				print(f_parent, f_append)
 			self.__route.append(f_append)
 			return depth, f_parent
+		if not a_list:
+			return -1, None
 		num, parent = self.__next_level_gates(a_list, depth + 1)
-		self.__route.insert(0, parent)
-		if DEBUG:
-			print(a_list[parent], parent)
-		return num, a_list[parent]
+
+		if parent:
+			self.__route.insert(0, parent)
+		# if DEBUG:
+		# 	print(a_list[parent], parent)
+		return num, a_list.get(parent, None)
 	
 	# @new_thread
 	def _gates_list_sub_DFS(self, source_sys, max_depth=DEFAULT_MAX_DEPTH, cur_depth=0, index=0, parent=None):
@@ -625,26 +645,195 @@ class RouteCalc(object):
 		return a_list, found, found_depth
 
 
+class JumpCalc(object):
+	DEFAULT_MAX_DEPTH = 110
+	sys_from = None
+	sys_to = None
+	__reached = list()
+	# __reach_list = list()
+	__safe_max_depth = 120
+	__distance = 0
+	
+	def __init__(self, source, destination):
+		self.sys_from = System.get(source)
+		self.sys_to = System.get(destination)
+	
+	@staticmethod
+	def distance_cache_pp():
+		size = len(list(jump_distance_cache.keys()))
+		print('Destination cache has %s items' % size)
+		
+		for key, jump_count in jump_distance_cache.items():
+			print('%s <-> %s : %s' % (System.get(key[0]).name, System.get(key[1]).name, jump_count))
+	
+	def __jumpify(self, a_list, sys_from=None):
+		if not sys_from:
+			sys_from = self.sys_from
+		new_list = list()
+		if a_list:
+			new_list.append(Jump(sys_from, a_list[0]))
+			for each in range(len(a_list[:-1])):
+				new_list.append(Jump(a_list[each], a_list[each + 1]))
+		return new_list
+		
+	@property
+	def distance(self):
+		return self.__distance
+	
+	def __cache_add(self):
+		if self.distance:
+			jump_distance_cache.update({
+				(self.sys_from.systemid, self.sys_to.systemid): self.distance,
+				(self.sys_to.systemid, self.sys_from.systemid): self.distance
+			})
+	
+	def compute(self):
+		self.__distance = self._distance_compute_init(self.sys_from)
+		self.__cache_add()
+	
+	def _has_destination(self, a_list):
+		for each in a_list:
+			if self.sys_to.systemid in each:
+				return True
+		return False
+	
+	def _is_destination(self, sys):
+		return int(sys) == self.sys_to.systemid or sys == self.sys_to
+	
+	# TODO
+	def _distance_compute_init(self, source_sys):
+		""" Breadth-first search style
+		
+		return the shortest route if possible within max_depth
+		"""
+		if not isinstance(source_sys, System):
+			source_sys = System.get(source_sys)
+		
+		self.__reached = list()
+		level = self.__next_level_distance_comp(source_sys.gate_list_int)
+		
+		return level + 1
+	
+	def __next_level_distance_comp(self, gate_list, depth=0):
+		def stop_predicate():
+			return depth >= self.__safe_max_depth - 1
+		
+		def printer(msg, offset=0, force=False, dead_end=False):
+			if VERBOSE or force:
+				MAX_DEF_CONST = ' #MAX_DEF#'
+				DEAD_END_CONST = ' #DEAD_END#'
+				max_str = MAX_DEF_CONST if stop_predicate() else ''
+				line_str = '%03d %s' % (depth, '|  ' * (depth + offset) + '%s' % msg)
+				dead_end_str = DEAD_END_CONST.rjust(len(MAX_DEF_CONST) + 2) if dead_end else ''
+				sup_str = dead_end_str + max_str
+				print(line_str.ljust(term_size[0] - len(dead_end_str)) + sup_str if sup_str else line_str)
+		
+		a_list = dict()
+		
+		if stop_predicate():
+			printer('ROCK BOTTOM')
+			return -1
+		try:
+			for each in gate_list:
+				if self._is_destination(each):
+					raise DestinationFound('l1-%s' % depth)
+				new_gate_list = System.get(each).gate_list_int
+				for gate in new_gate_list:
+					if self._is_destination(gate):
+						depth += 1
+						raise DestinationFound('l2-%s from %s' % (depth, (each, gate)))
+					if gate not in self.__reached:
+						self.__reached.append(gate)
+						a_list.update({gate: each})
+		except DestinationFound as e:
+			printer('found (%s) : %s' % (e, a_list))
+			return depth
+		if not a_list:
+			return -1
+		
+		return self.__next_level_distance_comp(a_list, depth + 1)
+	
+
 def get_route(source_var, destination_var):
 	source, destination = System.get(source_var), System.get(destination_var)
 	
 	if DEBUG:
-		print(
-			'distance from %s (%s) to %s (%s)' % (source.name, source.systemid, destination.name,
+		print('route from %s (%s) to %s (%s)' % (source.name, source.systemid, destination.name,
 			destination.systemid))
 	
 	res_route = RouteCalc(source, destination, AlgorithmEnum.BFS)
-	res_route.compute(5)
+	res_route.compute()
 	
 	return res_route
 
 
+def get_distance(source_var, destination_var):
+	source, destination = System.get(source_var), System.get(destination_var)
+	
+	if DEBUG:
+		print('distance from %s (%s) to %s (%s)' % (source.name, source.systemid, destination.name,
+			destination.systemid))
+	
+	res_dest = JumpCalc(source, destination)
+	res_dest.compute()
+	
+	return res_dest.distance
+
+
+def calc_all_combinations():
+	global jump_distance_cache, route_cache
+	total = 31430556
+	total = 62861112
+	i = 0
+	
+	def progress_wraper():
+		print_progress_bar(i, total=total, prefix='Progress', suffix=' completed', length=50, decimals=5)
+	
+	print(len(source_systems.keys()))
+	progress_wraper()
+	
+	for each in source_systems.keys():
+		source2 = list(source_systems.keys())
+		source2.remove(each)
+		for other in source2:
+			# if other != each:
+			# all_combinations += [(each, other), (other, each)]
+			# get_route(each, other)
+			get_distance(each, other)
+			i += 1
+			# print_progress_bar(i, total=total, prefix='Progress', suffix=' completed', length=50)
+			progress_wraper()
+		print('\n%s' % i)
+		print(jump_distance_cache)
+		json.dump(jump_distance_cache, open('from%s.json' % each, 'w'))
+		jump_distance_cache = dict()
+		route_cache = dict()
+		i += 1
+		# print_progress_bar(i, total=total, prefix='Progress', suffix=' completed', length=50)
+		progress_wraper()
+	print('\n%s' % i)
+	json.dump(jump_distance_cache, open('all.json'))
+
+
+def start():
+	start = time.time()
+	try:
+		# route = get_route('Tidacha', 30000077)
+		# route = get_route('Tidacha', 'Rens')
+		# dist = get_distance('Tidacha', 'Rens')
+		# print('distance', dist)
+		calc_all_combinations()
+	# RouteCalc.route_cache_pp()
+	# RouteCalc.distance_cache_pp()
+	# calc_all_combinations()
+	
+	except KeyboardInterrupt:
+		RouteCalc.distance_cache_pp(False)
+	
+	end = time.time()
+	print('done in %.2f sec' % (end - start))
+
 load_data()
 
 if __name__ == '__main__':
-	start = time.time()
-	route = get_route('Tidacha', 30000077)
-	route = get_route('Tidacha', 'Rens')
-	RouteCalc.route_cache_pp()
-	end = time.time()
-	print('done in %.2f sec' % (end - start))
+	start()
