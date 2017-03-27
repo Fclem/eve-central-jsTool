@@ -852,8 +852,14 @@ function distance_calc(from, to){
 		return distanceCalcSub(a_list, depth + 1)
 	}
 	try{
-		from = systemInfo(Number(from)).systemid;
-		to = systemInfo(Number(to)).systemid;
+		var from2 = Number(from);
+		var to2 = Number(to);
+		if (from2 != from2)
+			from2 = from.toString();
+		if (to2 != to2)
+			to2 = to.toString();
+		from = systemInfo(from2).systemid;
+		to = systemInfo(to2).systemid;
 	}catch(e){
 		return -1;
 	}
